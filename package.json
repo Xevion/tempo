@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Consolidated Bun-based developer scripts with composable primitives and config-driven runners",
   "author": "Xevion",
-  "license": "MIT",
+  "license": "LGPL-3.0-or-later",
   "repository": {
     "type": "git",
     "url": "https://github.com/Xevion/tempo.git"
@@ -44,6 +44,12 @@
     "@logtape/logtape": "^2.0.4",
     "ansis": "^4.2.0",
     "cleye": "^2.3.0"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.8",
