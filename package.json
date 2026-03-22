@@ -13,13 +13,13 @@
     "tempo": "./src/cli.ts"
   },
   "exports": {
-    ".": "./src/index.ts",
-    "./proc": "./src/proc.ts",
-    "./fmt": "./src/fmt.ts",
-    "./preflight": "./src/preflight.ts",
-    "./targets": "./src/targets.ts",
-    "./watch": "./src/watch.ts",
-    "./octocov": "./src/octocov.ts"
+    ".": { "bun": "./src/index.ts" },
+    "./proc": { "bun": "./src/proc.ts" },
+    "./fmt": { "bun": "./src/fmt.ts" },
+    "./preflight": { "bun": "./src/preflight.ts" },
+    "./targets": { "bun": "./src/targets.ts" },
+    "./watch": { "bun": "./src/watch.ts" },
+    "./octocov": { "bun": "./src/octocov.ts" }
   },
   "files": [
     "src/"
