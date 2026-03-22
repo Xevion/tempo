@@ -1,8 +1,8 @@
 import { resolve } from "node:path";
 import type { ResolvedConfig, CommandDef } from "../types";
-import { run } from "../proc";
+import { run, resolveCmd } from "../proc";
 import { resolveTargets, isAll, targetLabel } from "../targets";
-import { dim, parseArgs } from "../fmt";
+import { dim } from "../fmt";
 
 export async function runFmt(
   config: ResolvedConfig,
@@ -37,13 +37,13 @@ export async function runFmt(
     let cwd: string;
 
     if (typeof fmtDef === "string") {
-      cmd = parseArgs(fmtDef);
+      cmd = resolveCmd(fmtDef);
       cwd = sub.cwd ? resolve(config.rootDir, sub.cwd) : config.rootDir;
     } else if (Array.isArray(fmtDef)) {
       cmd = fmtDef;
       cwd = sub.cwd ? resolve(config.rootDir, sub.cwd) : config.rootDir;
     } else {
-      cmd = typeof fmtDef.cmd === "string" ? parseArgs(fmtDef.cmd) : fmtDef.cmd;
+      cmd = resolveCmd(fmtDef.cmd);
       cwd = fmtDef.cwd
         ? resolve(config.rootDir, fmtDef.cwd)
         : sub.cwd
@@ -51,9 +51,13 @@ export async function runFmt(
           : config.rootDir;
     }
 
-    // Append passthrough args
+    // Append passthrough args — for sh -c commands, join into the shell string
     if (passthrough.length > 0) {
-      cmd = [...cmd, ...passthrough];
+      if (cmd[0] === "sh" && cmd[1] === "-c") {
+        cmd = ["sh", "-c", cmd[2] + " " + passthrough.join(" ")];
+      } else {
+        cmd = [...cmd, ...passthrough];
+      }
     }
 
     run(cmd, { cwd });

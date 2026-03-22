@@ -1,8 +1,8 @@
 import { resolve } from "node:path";
 import type { ResolvedConfig, CommandDef } from "../types";
-import { run } from "../proc";
+import { run, resolveCmd } from "../proc";
 import { resolveTargets, isAll, targetLabel } from "../targets";
-import { dim, parseArgs } from "../fmt";
+import { dim } from "../fmt";
 
 export async function runLint(
   config: ResolvedConfig,
@@ -27,13 +27,13 @@ export async function runLint(
     let cwd: string;
 
     if (typeof lintDef === "string") {
-      cmd = parseArgs(lintDef);
+      cmd = resolveCmd(lintDef);
       cwd = sub.cwd ? resolve(config.rootDir, sub.cwd) : config.rootDir;
     } else if (Array.isArray(lintDef)) {
       cmd = lintDef;
       cwd = sub.cwd ? resolve(config.rootDir, sub.cwd) : config.rootDir;
     } else {
-      cmd = typeof lintDef.cmd === "string" ? parseArgs(lintDef.cmd) : lintDef.cmd;
+      cmd = resolveCmd(lintDef.cmd);
       cwd = lintDef.cwd
         ? resolve(config.rootDir, lintDef.cwd)
         : sub.cwd
@@ -42,7 +42,11 @@ export async function runLint(
     }
 
     if (passthrough.length > 0) {
-      cmd = [...cmd, ...passthrough];
+      if (cmd[0] === "sh" && cmd[1] === "-c") {
+        cmd = ["sh", "-c", cmd[2] + " " + passthrough.join(" ")];
+      } else {
+        cmd = [...cmd, ...passthrough];
+      }
     }
 
     run(cmd, { cwd });

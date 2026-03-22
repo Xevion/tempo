@@ -1,7 +1,7 @@
 import { resolve, relative } from "node:path";
 import type { ResolvedConfig, CommandDef } from "../types";
-import { run, runPiped } from "../proc";
-import { green, red, yellow, dim, parseArgs } from "../fmt";
+import { run, runPiped, resolveCmd } from "../proc";
+import { green, red, yellow, dim } from "../fmt";
 
 export async function runPreCommit(config: ResolvedConfig): Promise<number> {
   // Get staged files
@@ -63,11 +63,11 @@ export async function runPreCommit(config: ResolvedConfig): Promise<number> {
     // Run format check
     let checkCmd: string[];
     if (typeof checkDef === "string") {
-      checkCmd = parseArgs(checkDef);
+      checkCmd = resolveCmd(checkDef);
     } else if (Array.isArray(checkDef)) {
       checkCmd = checkDef;
     } else {
-      checkCmd = typeof checkDef.cmd === "string" ? parseArgs(checkDef.cmd) : checkDef.cmd;
+      checkCmd = resolveCmd(checkDef.cmd);
     }
 
     const checkResult = runPiped(checkCmd, { cwd });
@@ -88,11 +88,11 @@ export async function runPreCommit(config: ResolvedConfig): Promise<number> {
     const fixDef = sub.commands[fixAction];
     let fixCmd: string[];
     if (typeof fixDef === "string") {
-      fixCmd = parseArgs(fixDef);
+      fixCmd = resolveCmd(fixDef);
     } else if (Array.isArray(fixDef)) {
       fixCmd = fixDef;
     } else {
-      fixCmd = typeof fixDef.cmd === "string" ? parseArgs(fixDef.cmd) : fixDef.cmd;
+      fixCmd = resolveCmd(fixDef.cmd);
     }
 
     // Check for partial staging conflicts

@@ -1,8 +1,9 @@
 import type { CollectResult, SignalStrategy } from "./types";
-import { parseArgs, yellow, dim } from "./fmt";
+import { yellow, dim } from "./fmt";
 
-function resolveCmd(cmd: string | string[]): string[] {
-  return typeof cmd === "string" ? parseArgs(cmd) : cmd;
+/** Convert a command to spawn args. Strings run via sh -c, arrays exec directly. */
+export function resolveCmd(cmd: string | string[]): string[] {
+  return typeof cmd === "string" ? ["sh", "-c", cmd] : cmd;
 }
 
 export class ProcessGroup {

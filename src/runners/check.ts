@@ -8,16 +8,16 @@ import type {
   DeclarativePreflight,
   HookContext,
 } from "../types";
-import { spawnCollect, raceInOrder, run } from "../proc";
+import { spawnCollect, raceInOrder, run, resolveCmd } from "../proc";
 import { newestMtime, ensureFreshAsync } from "../preflight";
 import { resolveTargets, isAll, targetLabel } from "../targets";
-import { green, red, yellow, dim, bold, cyan, elapsed, isStderrTTY, parseArgs } from "../fmt";
+import { green, red, yellow, dim, bold, cyan, elapsed, isStderrTTY } from "../fmt";
 
-function resolveCmd(def: CommandDef): { cmd: string[]; opts: Partial<CommandObject> } {
-  if (typeof def === "string") return { cmd: parseArgs(def), opts: {} };
+function resolveCommandDef(def: CommandDef): { cmd: string[]; opts: Partial<CommandObject> } {
+  if (typeof def === "string") return { cmd: resolveCmd(def), opts: {} };
   if (Array.isArray(def)) return { cmd: def, opts: {} };
   return {
-    cmd: typeof def.cmd === "string" ? parseArgs(def.cmd) : def.cmd,
+    cmd: resolveCmd(def.cmd),
     opts: def,
   };
 }
@@ -121,7 +121,7 @@ export async function runCheck(
       for (const [checkAction, fixAction] of Object.entries(sub.autoFix)) {
         const fixDef = sub.commands[fixAction as string];
         if (!fixDef) continue;
-        const { cmd } = resolveCmd(fixDef as CommandDef);
+        const { cmd } = resolveCommandDef(fixDef as CommandDef);
         process.stderr.write(`${cyan("fix")} ${dim(`${subsystem}:${fixAction}`)}\n`);
         run(cmd, {
           cwd: sub.cwd ? resolve(config.rootDir, sub.cwd) : config.rootDir,
@@ -137,7 +137,7 @@ export async function runCheck(
   const fallbacks: CollectResult[] = [];
 
   for (const check of checks) {
-    const { cmd, opts } = resolveCmd(check.def);
+    const { cmd, opts } = resolveCommandDef(check.def);
     const sub = config.subsystems[check.subsystem];
     const checkOpts = config.check?.options?.[check.name as `${string}:${string}`];
 
@@ -195,7 +195,7 @@ export async function runCheck(
 
     const check = checks.find((c) => c.name === result.name)!;
     const checkOpts = config.check?.options?.[result.name as `${string}:${string}`];
-    const { opts } = resolveCmd(check.def);
+    const { opts } = resolveCommandDef(check.def);
     const hint = opts.hint ?? checkOpts?.hint;
     const warnCode = opts.warnIfExitCode ?? checkOpts?.warnIfExitCode;
 
@@ -272,7 +272,7 @@ export async function runCheck(
       const fixDef = sub.commands[fixAction];
       if (!fixDef) continue;
 
-      const { cmd } = resolveCmd(fixDef as CommandDef);
+      const { cmd } = resolveCommandDef(fixDef as CommandDef);
       process.stderr.write(`${cyan("fix")} ${dim(`${check.subsystem}:${fixAction}`)}\n`);
       run(cmd, {
         cwd: sub.cwd ? resolve(config.rootDir, sub.cwd) : config.rootDir,
@@ -289,7 +289,7 @@ export async function runCheck(
       const reFallbacks: CollectResult[] = [];
 
       for (const check of fixedChecks) {
-        const { cmd, opts } = resolveCmd(check.def);
+        const { cmd, opts } = resolveCommandDef(check.def);
         const sub = config.subsystems[check.subsystem];
         const cwd = opts.cwd
           ? resolve(config.rootDir, opts.cwd)

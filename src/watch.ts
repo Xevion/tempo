@@ -1,7 +1,7 @@
 import { watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
-import type { ProcessGroup } from "./proc";
-import { parseArgs, dim, cyan, green, red, yellow, elapsed } from "./fmt";
+import { type ProcessGroup, resolveCmd } from "./proc";
+import { dim, cyan, green, red, yellow, elapsed } from "./fmt";
 
 type WatcherState =
   | "building"
@@ -9,10 +9,6 @@ type WatcherState =
   | "running"
   | "building_with_server"
   | "swapping";
-
-function resolveCmd(cmd: string | string[]): string[] {
-  return typeof cmd === "string" ? parseArgs(cmd) : cmd;
-}
 
 export class BackendWatcher {
   private group: ProcessGroup;

@@ -175,7 +175,7 @@ const preCommitCommand = command(
 const runCommand = command(
   {
     name: "run",
-    parameters: ["<name>", "[args...]"],
+    parameters: ["[name]", "[args...]"],
     flags: {
       config: {
         type: String,
