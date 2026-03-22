@@ -316,16 +316,39 @@ export async function raceInOrder<T extends { name: string; stderr: string }>(
   }
 }
 
+const toolCache = new Map<string, boolean>();
+
 export function hasTool(cmd: string): boolean {
+  const cached = toolCache.get(cmd);
+  if (cached !== undefined) return cached;
   try {
     const result = Bun.spawnSync(["which", cmd], {
       stdout: "pipe",
       stderr: "pipe",
     });
-    return result.exitCode === 0;
+    const found = result.exitCode === 0;
+    toolCache.set(cmd, found);
+    return found;
   } catch {
+    toolCache.set(cmd, false);
     return false;
   }
+}
+
+/** Collect requires from subsystem + command definition, deduped */
+export function collectRequires(
+  subsystemRequires: string[] | undefined,
+  def: import("./types").CommandDef,
+): string[] {
+  const cmdRequires =
+    typeof def === "object" && !Array.isArray(def) ? def.requires : undefined;
+  if (!subsystemRequires?.length && !cmdRequires?.length) return [];
+  return [...new Set([...(subsystemRequires ?? []), ...(cmdRequires ?? [])])];
+}
+
+/** Return tool names from a requires list that are not on PATH */
+export function getMissingTools(requires: string[]): string[] {
+  return requires.filter((tool) => !hasTool(tool));
 }
 
 export function warnMissingTool(cmd: string, consequence: string): void {

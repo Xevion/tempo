@@ -8,12 +8,16 @@ export interface CommandObject {
   hint?: string;
   warnIfExitCode?: number;
   timeout?: number;
+  /** Tool names that must be on PATH. Check is skipped with a warning if any are missing. */
+  requires?: string[];
 }
 
 export interface SubsystemConfig<TCommands extends string = string> {
   aliases?: string[];
   cwd?: string;
   alwaysRun?: boolean;
+  /** Tool names required by all commands in this subsystem. Merged with per-command requires. */
+  requires?: string[];
   commands?: Record<TCommands, CommandDef>;
   autoFix?: Partial<Record<NoInfer<TCommands>, NoInfer<TCommands>>>;
 }

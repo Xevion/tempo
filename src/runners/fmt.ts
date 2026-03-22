@@ -1,8 +1,8 @@
 import { resolve } from "node:path";
 import type { ResolvedConfig, CommandDef } from "../types";
-import { run, resolveCmd } from "../proc";
+import { run, resolveCmd, collectRequires, getMissingTools } from "../proc";
 import { resolveTargets, isAll, targetLabel } from "../targets";
-import { dim } from "../fmt";
+import { dim, yellow } from "../fmt";
 
 export async function runFmt(
   config: ResolvedConfig,
@@ -32,6 +32,17 @@ export async function runFmt(
     }
 
     if (!fmtDef) continue;
+
+    const requires = collectRequires(sub.requires, fmtDef);
+    if (requires.length > 0) {
+      const missing = getMissingTools(requires);
+      if (missing.length > 0) {
+        process.stderr.write(
+          `${yellow("skip")} ${dim(subsystem)} ${dim(`(missing: ${missing.join(", ")})`)}\n`,
+        );
+        continue;
+      }
+    }
 
     let cmd: string[];
     let cwd: string;

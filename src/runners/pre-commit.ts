@@ -1,6 +1,6 @@
 import { resolve, relative } from "node:path";
 import type { ResolvedConfig, CommandDef } from "../types";
-import { run, runPiped, resolveCmd } from "../proc";
+import { run, runPiped, resolveCmd, collectRequires, getMissingTools } from "../proc";
 import { green, red, yellow, dim } from "../fmt";
 
 export async function runPreCommit(config: ResolvedConfig): Promise<number> {
@@ -57,6 +57,9 @@ export async function runPreCommit(config: ResolvedConfig): Promise<number> {
 
     const checkDef: CommandDef | undefined = sub.commands["format-check"];
     if (!checkDef) continue;
+
+    const requires = collectRequires(sub.requires, checkDef);
+    if (requires.length > 0 && getMissingTools(requires).length > 0) continue;
 
     const cwd = sub.cwd ? resolve(config.rootDir, sub.cwd) : config.rootDir;
 

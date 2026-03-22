@@ -8,7 +8,7 @@ import type {
   DeclarativePreflight,
   HookContext,
 } from "../types";
-import { spawnCollect, raceInOrder, run, resolveCmd } from "../proc";
+import { spawnCollect, raceInOrder, run, resolveCmd, collectRequires, getMissingTools } from "../proc";
 import { newestMtime, ensureFreshAsync } from "../preflight";
 import { resolveTargets, isAll, targetLabel } from "../targets";
 import { green, red, yellow, dim, bold, cyan, elapsed, isStderrTTY } from "../fmt";
@@ -25,6 +25,7 @@ function resolveCommandDef(def: CommandDef): { cmd: string[]; opts: Partial<Comm
 function isDeclarativePreflight(p: unknown): p is DeclarativePreflight {
   return typeof p === "object" && p !== null && "label" in p;
 }
+
 
 export async function runCheck(
   config: ResolvedConfig,
@@ -82,6 +83,18 @@ export async function runCheck(
     for (const [action, def] of Object.entries(sub.commands)) {
       const checkName = `${subsystem}:${action}`;
       if (excluded.has(checkName as `${string}:${string}`)) continue;
+
+      const requires = collectRequires(sub.requires, def as CommandDef);
+      if (requires.length > 0) {
+        const missing = getMissingTools(requires);
+        if (missing.length > 0) {
+          process.stderr.write(
+            `${yellow("skip")} ${dim(checkName)} ${dim(`(missing: ${missing.join(", ")})`)}\n`,
+          );
+          continue;
+        }
+      }
+
       checks.push({ name: checkName, subsystem, action, def: def as CommandDef });
     }
   }
@@ -121,6 +134,8 @@ export async function runCheck(
       for (const [checkAction, fixAction] of Object.entries(sub.autoFix)) {
         const fixDef = sub.commands[fixAction as string];
         if (!fixDef) continue;
+        const fixRequires = collectRequires(sub.requires, fixDef as CommandDef);
+        if (fixRequires.length > 0 && getMissingTools(fixRequires).length > 0) continue;
         const { cmd } = resolveCommandDef(fixDef as CommandDef);
         process.stderr.write(`${cyan("fix")} ${dim(`${subsystem}:${fixAction}`)}\n`);
         run(cmd, {
