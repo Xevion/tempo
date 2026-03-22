@@ -1,67 +1,70 @@
 import { resolve } from "node:path";
-import type { ResolvedConfig, CommandDef } from "../types";
-import { run, resolveCmd, collectRequires, getMissingTools } from "../proc";
-import { resolveTargets, isAll, targetLabel } from "../targets";
-import { dim, yellow } from "../fmt";
+import { getLogger } from "@logtape/logtape";
+import { collectRequires, getMissingTools, resolveCmd, run } from "../proc";
+import { isAll, resolveTargets, targetLabel } from "../targets";
+import type { CommandDef, ResolvedConfig } from "../types";
+
+const logger = getLogger(["tempo", "lint"]);
 
 export async function runLint(
-  config: ResolvedConfig,
-  args: string[],
-  passthrough: string[],
+	config: ResolvedConfig,
+	args: string[],
+	passthrough: string[],
 ): Promise<number> {
-  const subsystemNames = Object.keys(config.subsystems) as string[];
-  const targetResult = resolveTargets(args, config.subsystems);
+	const subsystemNames = Object.keys(config.subsystems) as string[];
+	const targetResult = resolveTargets(args, config.subsystems);
 
-  if (!isAll(targetResult, subsystemNames)) {
-    process.stderr.write(`${dim("scope:")} ${targetLabel(targetResult)}\n`);
-  }
+	if (!isAll(targetResult, subsystemNames)) {
+		logger.info("scope: {label}", { label: targetLabel(targetResult) });
+	}
 
-  for (const subsystem of targetResult.subsystems) {
-    const sub = config.subsystems[subsystem];
-    if (!sub.commands) continue;
+	for (const subsystem of targetResult.subsystems) {
+		const sub = config.subsystems[subsystem];
+		if (!sub.commands) continue;
 
-    const lintDef: CommandDef | undefined = sub.commands["lint"];
-    if (!lintDef) continue;
+		const lintDef: CommandDef | undefined = sub.commands.lint;
+		if (!lintDef) continue;
 
-    const requires = collectRequires(sub.requires, lintDef);
-    if (requires.length > 0) {
-      const missing = getMissingTools(requires);
-      if (missing.length > 0) {
-        process.stderr.write(
-          `${yellow("skip")} ${dim(subsystem)} ${dim(`(missing: ${missing.join(", ")})`)}\n`,
-        );
-        continue;
-      }
-    }
+		const requires = collectRequires(sub.requires, lintDef);
+		if (requires.length > 0) {
+			const missing = getMissingTools(requires);
+			if (missing.length > 0) {
+				logger.warn("skip {subsystem} (missing: {tools})", {
+					subsystem,
+					tools: missing.join(", "),
+				});
+				continue;
+			}
+		}
 
-    let cmd: string[];
-    let cwd: string;
+		let cmd: string[];
+		let cwd: string;
 
-    if (typeof lintDef === "string") {
-      cmd = resolveCmd(lintDef);
-      cwd = sub.cwd ? resolve(config.rootDir, sub.cwd) : config.rootDir;
-    } else if (Array.isArray(lintDef)) {
-      cmd = lintDef;
-      cwd = sub.cwd ? resolve(config.rootDir, sub.cwd) : config.rootDir;
-    } else {
-      cmd = resolveCmd(lintDef.cmd);
-      cwd = lintDef.cwd
-        ? resolve(config.rootDir, lintDef.cwd)
-        : sub.cwd
-          ? resolve(config.rootDir, sub.cwd)
-          : config.rootDir;
-    }
+		if (typeof lintDef === "string") {
+			cmd = resolveCmd(lintDef);
+			cwd = sub.cwd ? resolve(config.rootDir, sub.cwd) : config.rootDir;
+		} else if (Array.isArray(lintDef)) {
+			cmd = lintDef;
+			cwd = sub.cwd ? resolve(config.rootDir, sub.cwd) : config.rootDir;
+		} else {
+			cmd = resolveCmd(lintDef.cmd);
+			cwd = lintDef.cwd
+				? resolve(config.rootDir, lintDef.cwd)
+				: sub.cwd
+					? resolve(config.rootDir, sub.cwd)
+					: config.rootDir;
+		}
 
-    if (passthrough.length > 0) {
-      if (cmd[0] === "sh" && cmd[1] === "-c") {
-        cmd = ["sh", "-c", cmd[2] + " " + passthrough.join(" ")];
-      } else {
-        cmd = [...cmd, ...passthrough];
-      }
-    }
+		if (passthrough.length > 0) {
+			if (cmd[0] === "sh" && cmd[1] === "-c") {
+				cmd = ["sh", "-c", `${cmd[2]} ${passthrough.join(" ")}`];
+			} else {
+				cmd = [...cmd, ...passthrough];
+			}
+		}
 
-    run(cmd, { cwd });
-  }
+		run(cmd, { cwd });
+	}
 
-  return 0;
+	return 0;
 }

@@ -1,48 +1,54 @@
-import type { TempoConfig, CommandSpec, CommandFlagDef } from "./types";
-import { ProcessGroup, run, runPiped } from "./proc";
 import { parseFlagsFromArgv } from "./flags";
 import * as fmt from "./fmt";
-import { rust } from "./presets/rust";
 import { biome } from "./presets/biome";
 import { go } from "./presets/go";
 import { gradle } from "./presets/gradle";
+import { rust } from "./presets/rust";
+import { ProcessGroup, run, runPiped } from "./proc";
+import type { CommandFlagDef, CommandSpec, TempoConfig } from "./types";
 
 export type {
-  TempoConfig,
-  ResolvedConfig,
-  SubsystemConfig,
-  CommandDef,
-  CommandObject,
-  CollectResult,
-  SignalStrategy,
-  CommandSpec,
-  CommandContext,
-  CommandFlagDef,
-  InferFlags,
-  DevFlag,
-  DevProcess,
-  UnmanagedProcess,
-  ManagedProcess,
-  PreflightDef,
-  DeclarativePreflight,
-  AutoFixStrategy,
-  ExitBehavior,
-  CIConfig,
-  CheckConfig,
-  DevConfig,
-  Hooks,
-  HookContext,
-  TempoLogger,
-  PreflightContext,
-  CheckInfo,
-  TargetResult,
+	AutoFixStrategy,
+	CheckConfig,
+	CheckInfo,
+	CIConfig,
+	CollectResult,
+	CommandContext,
+	CommandDef,
+	CommandFlagDef,
+	CommandObject,
+	CommandSpec,
+	DeclarativePreflight,
+	DevConfig,
+	DevFlag,
+	DevProcess,
+	ExitBehavior,
+	HookContext,
+	Hooks,
+	InferFlags,
+	ManagedProcess,
+	PreflightContext,
+	PreflightDef,
+	ResolvedConfig,
+	SignalStrategy,
+	SubsystemConfig,
+	TargetResult,
+	TempoConfig,
+	TempoLogger,
+	UnmanagedProcess,
 } from "./types";
+
+export {
+	parseIntOption,
+	resolveEnumOption,
+	ValidationError,
+} from "./utils/validation";
 
 /** Type-safe config helper — preserves subsystem name literals for downstream inference */
 export function defineConfig<const TSubsystems extends string>(
-  config: TempoConfig<TSubsystems>,
+	config: TempoConfig<TSubsystems>,
 ): TempoConfig<TSubsystems> {
-  return config;
+	return config;
 }
 
 /**
@@ -54,42 +60,39 @@ export function defineConfig<const TSubsystems extends string>(
  * ```
  */
 export function defineCommand<
-  TFlags extends Record<string, CommandFlagDef> = Record<
-    string,
-    CommandFlagDef
-  >,
+	TFlags extends Record<string, CommandFlagDef> = Record<
+		string,
+		CommandFlagDef
+	>,
 >(spec: CommandSpec<TFlags>, selfExecute?: boolean): CommandSpec<TFlags> {
-  if (selfExecute) {
-    const args = process.argv.slice(2);
-    const { flags, positional } = spec.flags
-      ? parseFlagsFromArgv(
-          spec.flags as Record<string, CommandFlagDef>,
-          args,
-        )
-      : { flags: {}, positional: args };
+	if (selfExecute) {
+		const args = process.argv.slice(2);
+		const { flags, positional } = spec.flags
+			? parseFlagsFromArgv(spec.flags as Record<string, CommandFlagDef>, args)
+			: { flags: {}, positional: args };
 
-    const group = new ProcessGroup({ signal: "natural" });
+		const group = new ProcessGroup({ signal: "natural" });
 
-    Promise.resolve(
-      spec.run({
-        group,
-        config: null,
-        flags: flags as any,
-        args: positional,
-        run,
-        runPiped,
-        fmt,
-      }),
-    ).then((code) => {
-      group.dispose();
-      process.exit(code);
-    });
-  }
+		Promise.resolve(
+			spec.run({
+				group,
+				config: null,
+				flags: flags as any,
+				args: positional,
+				run,
+				runPiped,
+				fmt,
+			}),
+		).then((code) => {
+			group.dispose();
+			process.exit(code);
+		});
+	}
 
-  return spec;
+	return spec;
 }
 
-export { rust, biome, go, gradle };
+export { biome, go, gradle, rust };
 
 /** Preset namespace for convenient access */
 export const presets = { rust, biome, go, gradle } as const;

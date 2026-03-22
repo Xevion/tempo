@@ -13,22 +13,40 @@
     "tempo": "./src/cli.ts"
   },
   "exports": {
-    ".": { "bun": "./src/index.ts" },
-    "./proc": { "bun": "./src/proc.ts" },
-    "./fmt": { "bun": "./src/fmt.ts" },
-    "./preflight": { "bun": "./src/preflight.ts" },
-    "./targets": { "bun": "./src/targets.ts" },
-    "./watch": { "bun": "./src/watch.ts" },
-    "./octocov": { "bun": "./src/octocov.ts" }
+    ".": {
+      "bun": "./src/index.ts"
+    },
+    "./proc": {
+      "bun": "./src/proc.ts"
+    },
+    "./fmt": {
+      "bun": "./src/fmt.ts"
+    },
+    "./preflight": {
+      "bun": "./src/preflight.ts"
+    },
+    "./targets": {
+      "bun": "./src/targets.ts"
+    },
+    "./watch": {
+      "bun": "./src/watch.ts"
+    },
+    "./octocov": {
+      "bun": "./src/octocov.ts"
+    }
   },
   "files": [
     "src/"
   ],
   "dependencies": {
-    "cleye": "^2.3.0",
-    "picocolors": "^1.1.1"
+    "@catppuccin/palette": "^1.8.0",
+    "@logtape/file": "^2.0.4",
+    "@logtape/logtape": "^2.0.4",
+    "ansis": "^4.2.0",
+    "cleye": "^2.3.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.8",
     "@types/bun": "^1.2.0"
   }
 }

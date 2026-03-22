@@ -1,7 +1,9 @@
 #!/usr/bin/env bun
 import { cli, command } from "cleye";
+import pkg from "../package.json";
 import { loadConfig } from "./config";
 import { parseFlagsFromArgv } from "./flags";
+import { setupLogging, teardownLogging } from "./logging/setup";
 import { runCheck } from "./runners/check";
 import { runDev } from "./runners/dev";
 import { runFmt } from "./runners/fmt";
@@ -9,218 +11,264 @@ import { runLint } from "./runners/lint";
 import { runPreCommit } from "./runners/pre-commit";
 import { runCustom } from "./runners/run";
 import type { CommandFlagDef, DevFlag } from "./types";
-import pkg from "../package.json";
+
+function extractGlobalFlags(): {
+	verbosity: number;
+	quiet: boolean;
+	logFile?: string;
+	cleaned: string[];
+} {
+	const args = process.argv.slice(2);
+	let verbosity = 0;
+	let quiet = false;
+	let logFile: string | undefined;
+	const cleaned: string[] = [];
+
+	for (let i = 0; i < args.length; i++) {
+		const arg = args[i];
+		if (arg === "-v") {
+			verbosity++;
+			continue;
+		}
+		if (arg === "-vv") {
+			verbosity += 2;
+			continue;
+		}
+		if (arg === "-vvv") {
+			verbosity += 3;
+			continue;
+		}
+		if (arg === "-q" || arg === "--quiet") {
+			quiet = true;
+			continue;
+		}
+		if (arg === "--log-file" && args[i + 1]) {
+			logFile = args[i + 1];
+			i++;
+			continue;
+		}
+		cleaned.push(arg);
+	}
+
+	return { verbosity, quiet, logFile, cleaned };
+}
+
+const globalFlags = extractGlobalFlags();
+process.argv = [process.argv[0], process.argv[1], ...globalFlags.cleaned];
+await setupLogging({
+	verbosity: globalFlags.verbosity,
+	quiet: globalFlags.quiet,
+	logFile: globalFlags.logFile,
+});
+
+async function shutdown(code: number): Promise<void> {
+	await teardownLogging();
+	process.exit(code);
+}
+
+process.on("SIGINT", () => shutdown(130));
+process.on("SIGTERM", () => shutdown(143));
 
 const checkCommand = command(
-  {
-    name: "check",
-    parameters: ["[targets...]"],
-    flags: {
-      fix: {
-        type: Boolean,
-        description: "Auto-fix failed checks",
-      },
-      config: {
-        type: String,
-        description: "Override config file path",
-        placeholder: "<path>",
-      },
-    },
-    help: { description: "Parallel check orchestrator with auto-fix" },
-  },
-  async (argv) => {
-    const config = await loadConfig({ configPath: argv.flags.config });
-    const exitCode = await runCheck(config, argv._.targets ?? [], {
-      fix: argv.flags.fix,
-    });
-    process.exit(exitCode);
-  },
+	{
+		name: "check",
+		parameters: ["[targets...]"],
+		flags: {
+			fix: {
+				type: Boolean,
+				description: "Auto-fix failed checks",
+			},
+			config: {
+				type: String,
+				description: "Override config file path",
+				placeholder: "<path>",
+			},
+		},
+		help: { description: "Parallel check orchestrator with auto-fix" },
+	},
+	async (argv) => {
+		const config = await loadConfig({ configPath: argv.flags.config });
+		const exitCode = await runCheck(config, argv._.targets ?? [], {
+			fix: argv.flags.fix,
+		});
+		await shutdown(exitCode);
+	},
 );
 
 /** Convert DevFlag spec to CommandFlagDef for parseFlagsFromArgv */
 function devFlagToCommandFlag(flag: DevFlag): CommandFlagDef {
-  return {
-    type: flag.type,
-    alias: flag.alias,
-    description: flag.description,
-    default: flag.default,
-  };
+	return {
+		type: flag.type,
+		alias: flag.alias,
+		description: flag.description,
+		default: flag.default,
+	};
 }
 
 const devCommand = command(
-  {
-    name: "dev",
-    parameters: ["[targets...]", "--", "[passthrough...]"],
-    flags: {
-      config: {
-        type: String,
-        description: "Override config file path",
-        placeholder: "<path>",
-      },
-    },
-    help: { description: "Multi-process dev server manager" },
-  },
-  async (argv) => {
-    const config = await loadConfig({ configPath: argv.flags.config });
-    const passthrough = argv._.passthrough ?? [];
+	{
+		name: "dev",
+		parameters: ["[targets...]", "--", "[passthrough...]"],
+		flags: {
+			config: {
+				type: String,
+				description: "Override config file path",
+				placeholder: "<path>",
+			},
+		},
+		help: { description: "Multi-process dev server manager" },
+	},
+	async (argv) => {
+		const config = await loadConfig({ configPath: argv.flags.config });
+		const passthrough = argv._.passthrough ?? [];
 
-    // Two-pass flag parsing: cleye handled --config and targets,
-    // now parse dev-specific flags from config.dev.flags against raw argv
-    let devFlags: Record<string, unknown> = {};
-    if (config.dev?.flags && Object.keys(config.dev.flags).length > 0) {
-      const flagSpec: Record<string, CommandFlagDef> = {};
-      for (const [name, def] of Object.entries(config.dev.flags)) {
-        flagSpec[name] = devFlagToCommandFlag(def);
-      }
-      // Extract the args after "dev" subcommand from process.argv
-      const devArgIndex = process.argv.indexOf("dev");
-      if (devArgIndex !== -1) {
-        const rawDevArgs = process.argv.slice(devArgIndex + 1);
-        // Filter out --config and its value, stop at -- passthrough separator
-        const filtered: string[] = [];
-        for (let i = 0; i < rawDevArgs.length; i++) {
-          if (rawDevArgs[i] === "--") break;
-          if (rawDevArgs[i] === "--config") {
-            i++; // skip value
-            continue;
-          }
-          filtered.push(rawDevArgs[i]);
-        }
-        const parsed = parseFlagsFromArgv(flagSpec, filtered);
-        devFlags = parsed.flags;
-      }
-    }
+		let devFlags: Record<string, unknown> = {};
+		if (config.dev?.flags && Object.keys(config.dev.flags).length > 0) {
+			const flagSpec: Record<string, CommandFlagDef> = {};
+			for (const [name, def] of Object.entries(config.dev.flags)) {
+				flagSpec[name] = devFlagToCommandFlag(def);
+			}
+			const devArgIndex = process.argv.indexOf("dev");
+			if (devArgIndex !== -1) {
+				const rawDevArgs = process.argv.slice(devArgIndex + 1);
+				const filtered: string[] = [];
+				for (let i = 0; i < rawDevArgs.length; i++) {
+					if (rawDevArgs[i] === "--") break;
+					if (rawDevArgs[i] === "--config") {
+						i++;
+						continue;
+					}
+					filtered.push(rawDevArgs[i]);
+				}
+				const parsed = parseFlagsFromArgv(flagSpec, filtered);
+				devFlags = parsed.flags;
+			}
+		}
 
-    const mergedFlags = { ...argv.flags, ...devFlags };
-    const exitCode = await runDev(
-      config,
-      argv._.targets ?? [],
-      mergedFlags,
-      passthrough,
-    );
-    process.exit(exitCode);
-  },
+		const mergedFlags = { ...argv.flags, ...devFlags };
+		const exitCode = await runDev(
+			config,
+			argv._.targets ?? [],
+			mergedFlags,
+			passthrough,
+		);
+		await shutdown(exitCode);
+	},
 );
 
 const fmtCommand = command(
-  {
-    name: "fmt",
-    alias: "format",
-    parameters: ["[targets...]", "--", "[passthrough...]"],
-    flags: {
-      config: {
-        type: String,
-        description: "Override config file path",
-        placeholder: "<path>",
-      },
-    },
-    help: { description: "Sequential per-subsystem formatting" },
-  },
-  async (argv) => {
-    const config = await loadConfig({ configPath: argv.flags.config });
-    const passthrough = argv._.passthrough ?? [];
-    const exitCode = await runFmt(
-      config,
-      argv._.targets ?? [],
-      passthrough,
-    );
-    process.exit(exitCode);
-  },
+	{
+		name: "fmt",
+		alias: "format",
+		parameters: ["[targets...]", "--", "[passthrough...]"],
+		flags: {
+			config: {
+				type: String,
+				description: "Override config file path",
+				placeholder: "<path>",
+			},
+		},
+		help: { description: "Sequential per-subsystem formatting" },
+	},
+	async (argv) => {
+		const config = await loadConfig({ configPath: argv.flags.config });
+		const passthrough = argv._.passthrough ?? [];
+		const exitCode = await runFmt(config, argv._.targets ?? [], passthrough);
+		await shutdown(exitCode);
+	},
 );
 
 const lintCommand = command(
-  {
-    name: "lint",
-    parameters: ["[targets...]", "--", "[passthrough...]"],
-    flags: {
-      config: {
-        type: String,
-        description: "Override config file path",
-        placeholder: "<path>",
-      },
-    },
-    help: { description: "Sequential per-subsystem linting" },
-  },
-  async (argv) => {
-    const config = await loadConfig({ configPath: argv.flags.config });
-    const passthrough = argv._.passthrough ?? [];
-    const exitCode = await runLint(
-      config,
-      argv._.targets ?? [],
-      passthrough,
-    );
-    process.exit(exitCode);
-  },
+	{
+		name: "lint",
+		parameters: ["[targets...]", "--", "[passthrough...]"],
+		flags: {
+			config: {
+				type: String,
+				description: "Override config file path",
+				placeholder: "<path>",
+			},
+		},
+		help: { description: "Sequential per-subsystem linting" },
+	},
+	async (argv) => {
+		const config = await loadConfig({ configPath: argv.flags.config });
+		const passthrough = argv._.passthrough ?? [];
+		const exitCode = await runLint(config, argv._.targets ?? [], passthrough);
+		await shutdown(exitCode);
+	},
 );
 
 const preCommitCommand = command(
-  {
-    name: "pre-commit",
-    flags: {
-      config: {
-        type: String,
-        description: "Override config file path",
-        placeholder: "<path>",
-      },
-    },
-    help: { description: "Staged-file auto-formatter with partial staging detection" },
-  },
-  async (argv) => {
-    const config = await loadConfig({ configPath: argv.flags.config });
-    const exitCode = await runPreCommit(config);
-    process.exit(exitCode);
-  },
+	{
+		name: "pre-commit",
+		flags: {
+			config: {
+				type: String,
+				description: "Override config file path",
+				placeholder: "<path>",
+			},
+		},
+		help: {
+			description: "Staged-file auto-formatter with partial staging detection",
+		},
+	},
+	async (argv) => {
+		const config = await loadConfig({ configPath: argv.flags.config });
+		const exitCode = await runPreCommit(config);
+		await shutdown(exitCode);
+	},
 );
 
 const runCommand = command(
-  {
-    name: "run",
-    parameters: ["[name]", "[args...]"],
-    flags: {
-      config: {
-        type: String,
-        description: "Override config file path",
-        placeholder: "<path>",
-      },
-      list: {
-        type: Boolean,
-        alias: "l",
-        description: "List all registered custom commands",
-      },
-    },
-    help: { description: "Execute a custom command registered via defineCommand" },
-  },
-  async (argv) => {
-    const config = await loadConfig({ configPath: argv.flags.config });
+	{
+		name: "run",
+		parameters: ["[name]", "[args...]"],
+		flags: {
+			config: {
+				type: String,
+				description: "Override config file path",
+				placeholder: "<path>",
+			},
+			list: {
+				type: Boolean,
+				alias: "l",
+				description: "List all registered custom commands",
+			},
+		},
+		help: {
+			description: "Execute a custom command registered via defineCommand",
+		},
+	},
+	async (argv) => {
+		const config = await loadConfig({ configPath: argv.flags.config });
 
-    if (argv.flags.list) {
-      const exitCode = await runCustom(config, "--list", []);
-      process.exit(exitCode);
-    }
+		if (argv.flags.list) {
+			const exitCode = await runCustom(config, "--list", []);
+			await shutdown(exitCode);
+		}
 
-    const name = argv._.name;
-    if (!name) {
-      console.error("Usage: tempo run <name> [args...]");
-      process.exit(1);
-    }
+		const name = argv._.name;
+		if (!name) {
+			console.error("Usage: tempo run <name> [args...]");
+			await shutdown(1);
+		}
 
-    const exitCode = await runCustom(config, name, argv._.args ?? []);
-    process.exit(exitCode);
-  },
+		const exitCode = await runCustom(config, name!, argv._.args ?? []);
+		await shutdown(exitCode);
+	},
 );
 
-await cli(
-  {
-    name: "tempo",
-    version: pkg.version,
-    commands: [
-      checkCommand,
-      devCommand,
-      fmtCommand,
-      lintCommand,
-      preCommitCommand,
-      runCommand,
-    ],
-    help: { description: "Developer script orchestrator" },
-  },
-);
+await cli({
+	name: "tempo",
+	version: pkg.version,
+	commands: [
+		checkCommand,
+		devCommand,
+		fmtCommand,
+		lintCommand,
+		preCommitCommand,
+		runCommand,
+	],
+	help: { description: "Developer script orchestrator" },
+});
