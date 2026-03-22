@@ -32,6 +32,8 @@ export type {
   DevConfig,
   Hooks,
   HookContext,
+  TempoLogger,
+  PreflightContext,
   CheckInfo,
   TargetResult,
 } from "./types";

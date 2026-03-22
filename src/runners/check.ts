@@ -7,8 +7,9 @@ import type {
   CheckInfo,
   DeclarativePreflight,
   HookContext,
+  TempoLogger,
 } from "../types";
-import { spawnCollect, raceInOrder, run, resolveCmd, collectRequires, getMissingTools } from "../proc";
+import { spawnCollect, raceInOrder, run, resolveCmd, collectRequires, getMissingTools, TempoAbortError } from "../proc";
 import { newestMtime, ensureFreshAsync } from "../preflight";
 import { resolveTargets, isAll, targetLabel } from "../targets";
 import { green, red, yellow, dim, bold, cyan, elapsed, isStderrTTY } from "../fmt";
@@ -47,6 +48,17 @@ export async function runCheck(
     process.stderr.write(`${dim("scope:")} ${targetLabel(targetResult)}\n`);
   }
 
+  // Shared logger and fail for preflights and hooks
+  const logger: TempoLogger = {
+    info: (msg: string) => process.stderr.write(`${cyan("info")} ${msg}\n`),
+    warn: (msg: string) => process.stderr.write(`${yellow("warn")} ${msg}\n`),
+    error: (msg: string) => process.stderr.write(`${red("error")} ${msg}\n`),
+  };
+  const fail = (msg: string): never => {
+    process.stderr.write(`${red("error")} ${msg}\n`);
+    throw new TempoAbortError(msg);
+  };
+
   // Run preflights
   for (const preflight of config.preflights ?? []) {
     if (isDeclarativePreflight(preflight)) {
@@ -69,7 +81,12 @@ export async function runCheck(
         },
       });
     } else {
-      await preflight();
+      try {
+        await preflight({ logger, fail });
+      } catch (e) {
+        if (e instanceof TempoAbortError) return 1;
+        throw e;
+      }
     }
   }
 
@@ -112,12 +129,19 @@ export async function runCheck(
     flags,
     targets: targetResult.subsystems as Set<string>,
     env: hookEnv,
+    logger,
     addCleanup: (fn) => cleanupFns.push(fn),
+    fail,
   };
 
   // Run before:check hook
   if (config.hooks?.["before:check"]) {
-    await config.hooks["before:check"](hookCtx);
+    try {
+      await config.hooks["before:check"](hookCtx);
+    } catch (e) {
+      if (e instanceof TempoAbortError) return 1;
+      throw e;
+    }
   }
 
   // CI env injection

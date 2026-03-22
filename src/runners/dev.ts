@@ -1,9 +1,9 @@
 import { resolve } from "node:path";
 import type { ResolvedConfig, HookContext } from "../types";
-import { ProcessGroup } from "../proc";
+import { ProcessGroup, TempoAbortError } from "../proc";
 import { BackendWatcher } from "../watch";
 import { resolveTargets, isAll, targetLabel } from "../targets";
-import { dim, green } from "../fmt";
+import { dim, green, cyan, yellow, red } from "../fmt";
 
 export async function runDev(
   config: ResolvedConfig,
@@ -29,12 +29,26 @@ export async function runDev(
     flags,
     targets: targetResult.subsystems as Set<string>,
     env: hookEnv,
+    logger: {
+      info: (msg: string) => process.stderr.write(`${cyan("info")} ${msg}\n`),
+      warn: (msg: string) => process.stderr.write(`${yellow("warn")} ${msg}\n`),
+      error: (msg: string) => process.stderr.write(`${red("error")} ${msg}\n`),
+    },
     addCleanup: (fn) => cleanupFns.push(fn),
+    fail: (msg: string): never => {
+      process.stderr.write(`${red("error")} ${msg}\n`);
+      throw new TempoAbortError(msg);
+    },
   };
 
   // Run before:dev hook
   if (config.hooks?.["before:dev"]) {
-    await config.hooks["before:dev"](hookCtx);
+    try {
+      await config.hooks["before:dev"](hookCtx);
+    } catch (e) {
+      if (e instanceof TempoAbortError) return 1;
+      throw e;
+    }
   }
 
   const envOverrides: Record<string, string> = { ...hookEnv };

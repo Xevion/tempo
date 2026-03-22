@@ -1,6 +1,14 @@
 import type { CollectResult, SignalStrategy } from "./types";
 import { yellow, dim } from "./fmt";
 
+/** Thrown by ctx.fail() in hooks/preflights to abort with a message */
+export class TempoAbortError extends Error {
+  constructor(message?: string) {
+    super(message);
+    this.name = "TempoAbortError";
+  }
+}
+
 /** Convert a command to spawn args. Strings run via sh -c, arrays exec directly. */
 export function resolveCmd(cmd: string | string[]): string[] {
   return typeof cmd === "string" ? ["sh", "-c", cmd] : cmd;

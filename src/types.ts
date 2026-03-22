@@ -30,7 +30,12 @@ export interface DeclarativePreflight {
   reason?: string;
 }
 
-export type PreflightDef = DeclarativePreflight | (() => void | Promise<void>);
+export interface PreflightContext {
+  logger: TempoLogger;
+  fail(message: string): never;
+}
+
+export type PreflightDef = DeclarativePreflight | ((ctx: PreflightContext) => void | Promise<void>);
 
 export type AutoFixStrategy = "fix-first" | "fix-on-fail";
 
@@ -114,12 +119,21 @@ export interface CIConfig {
   groupedOutput?: boolean;
 }
 
+export interface TempoLogger {
+  info(message: string): void;
+  warn(message: string): void;
+  error(message: string): void;
+}
+
 export interface HookContext<TSubsystems extends string = string> {
   config: ResolvedConfig<TSubsystems>;
   flags: Record<string, unknown>;
   targets: Set<TSubsystems>;
   env: Record<string, string>;
+  logger: TempoLogger;
   addCleanup(fn: () => void | Promise<void>): void;
+  /** Log an error message and abort the current runner */
+  fail(message: string): never;
 }
 
 export interface CheckInfo {
