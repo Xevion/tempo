@@ -4,7 +4,13 @@ import { parseFlagsFromArgv } from "../flags";
 import * as fmt from "../fmt";
 import { c } from "../fmt";
 import { ProcessGroup, run, runPiped } from "../proc";
-import type { CommandFlagDef, CommandSpec, ResolvedConfig } from "../types";
+import type {
+	CommandFlagDef,
+	CommandSpec,
+	CustomCommandEntry,
+	InlineCommandSpec,
+	ResolvedConfig,
+} from "../types";
 
 const logger = getLogger(["tempo", "run"]);
 
@@ -21,29 +27,23 @@ export async function runCustom(
 			return 0;
 		}
 		process.stdout.write(`${c.bold("Custom commands:")}\n\n`);
-		for (const [cmdName, cmdPath] of Object.entries(custom)) {
-			const fullCmdPath = resolve(config.rootDir, cmdPath);
-			let description = "";
-			try {
-				const mod = await import(fullCmdPath);
-				const spec = mod.default as CommandSpec | undefined;
-				if (spec?.description) description = spec.description;
-			} catch {
-				// can't load — show path as fallback
-			}
+		for (const [cmdName, entry] of Object.entries(custom)) {
+			const description = await getEntryDescription(entry, config.rootDir);
 			if (description) {
 				process.stdout.write(
 					`  ${cmdName} ${c.overlay0("—")} ${description}\n`,
 				);
+			} else if (typeof entry === "string") {
+				process.stdout.write(`  ${cmdName} ${c.overlay0(entry)}\n`);
 			} else {
-				process.stdout.write(`  ${cmdName} ${c.overlay0(cmdPath)}\n`);
+				process.stdout.write(`  ${cmdName} ${c.overlay0("(inline)")}\n`);
 			}
 		}
 		return 0;
 	}
 
-	const scriptPath = custom[name];
-	if (!scriptPath) {
+	const entry: CustomCommandEntry | undefined = custom[name];
+	if (!entry) {
 		const available = Object.keys(custom);
 		if (available.length === 0) {
 			logger.error(
@@ -59,6 +59,38 @@ export async function runCustom(
 		return 1;
 	}
 
+	// Bare function — call with empty flags
+	if (typeof entry === "function") {
+		const group = new ProcessGroup({ signal: "natural" });
+		try {
+			return await entry({
+				group,
+				config,
+				flags: {} as Record<never, never>,
+				args,
+				run,
+				runPiped,
+				fmt,
+			});
+		} finally {
+			group.dispose();
+		}
+	}
+
+	// Inline CommandSpec object — parse flags if defined
+	if (typeof entry === "object") {
+		return executeSpec(entry, config, args);
+	}
+
+	// String path — import file and execute
+	return executeFilePath(entry, config, args);
+}
+
+async function executeFilePath(
+	scriptPath: string,
+	config: ResolvedConfig,
+	args: string[],
+): Promise<number> {
 	const fullPath = resolve(config.rootDir, scriptPath);
 
 	let mod: Record<string, unknown>;
@@ -76,21 +108,27 @@ export async function runCustom(
 	if (!command || typeof command.run !== "function") {
 		logger.error(
 			"invalid command {path}: default export must be a defineCommand result",
-			{
-				path: scriptPath,
-			},
+			{ path: scriptPath },
 		);
 		return 1;
 	}
 
-	const { flags, positional } = command.flags
-		? parseFlagsFromArgv(command.flags as Record<string, CommandFlagDef>, args)
+	return executeSpec(command, config, args);
+}
+
+async function executeSpec(
+	spec: InlineCommandSpec,
+	config: ResolvedConfig,
+	args: string[],
+): Promise<number> {
+	const { flags, positional } = spec.flags
+		? parseFlagsFromArgv(spec.flags as Record<string, CommandFlagDef>, args)
 		: { flags: {}, positional: args };
 
 	const group = new ProcessGroup({ signal: "natural" });
 
 	try {
-		const exitCode = await command.run({
+		return await spec.run({
 			group,
 			config,
 			flags: flags as any,
@@ -99,8 +137,31 @@ export async function runCustom(
 			runPiped,
 			fmt,
 		});
-		return exitCode;
 	} finally {
 		group.dispose();
 	}
+}
+
+async function getEntryDescription(
+	entry: CustomCommandEntry,
+	rootDir: string,
+): Promise<string> {
+	if (typeof entry === "function") {
+		return "";
+	}
+
+	if (typeof entry === "object") {
+		return entry.description ?? "";
+	}
+
+	// String path — import to extract description
+	const fullPath = resolve(rootDir, entry);
+	try {
+		const mod = await import(fullPath);
+		const spec = mod.default as CommandSpec | undefined;
+		if (spec?.description) return spec.description;
+	} catch {
+		// can't load — caller shows path as fallback
+	}
+	return "";
 }

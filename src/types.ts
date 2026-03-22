@@ -169,7 +169,7 @@ export interface TempoConfig<TSubsystems extends string = string> {
 	preflights?: PreflightDef[];
 	check?: CheckConfig<TSubsystems>;
 	dev?: DevConfig<TSubsystems>;
-	custom?: Record<string, string>;
+	custom?: Record<string, CustomCommandEntry>;
 	ci?: CIConfig;
 	hooks?: Hooks<TSubsystems>;
 }
@@ -211,6 +211,22 @@ export interface CommandSpec<
 	flags?: TFlags;
 	run: (ctx: CommandContext<TFlags>) => Promise<number> | number;
 }
+
+/** CommandSpec with optional name — for inline use where the config key provides the name */
+export type InlineCommandSpec<
+	TFlags extends Record<string, CommandFlagDef> = Record<
+		string,
+		CommandFlagDef
+	>,
+> = Omit<CommandSpec<TFlags>, "name"> & { name?: string };
+
+/** Bare function for inline custom commands — receives CommandContext with no flags */
+export type CustomCommandFn = (
+	ctx: CommandContext<Record<never, CommandFlagDef>>,
+) => Promise<number> | number;
+
+/** A custom command entry: file path, bare function, or inline CommandSpec */
+export type CustomCommandEntry = string | CustomCommandFn | InlineCommandSpec;
 
 export interface CommandContext<
 	TFlags extends Record<string, CommandFlagDef> = Record<
