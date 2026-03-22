@@ -1,0 +1,34 @@
+{
+  "name": "@xevion/tempo",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Consolidated Bun-based developer scripts with composable primitives and config-driven runners",
+  "author": "Xevion",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Xevion/tempo.git"
+  },
+  "bin": {
+    "tempo": "./src/cli.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./proc": "./src/proc.ts",
+    "./fmt": "./src/fmt.ts",
+    "./preflight": "./src/preflight.ts",
+    "./targets": "./src/targets.ts",
+    "./watch": "./src/watch.ts",
+    "./octocov": "./src/octocov.ts"
+  },
+  "files": [
+    "src/"
+  ],
+  "dependencies": {
+    "cleye": "^2.3.0",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0"
+  }
+}
