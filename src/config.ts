@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ResolvedConfig, TempoConfig } from "./types.ts";
 
 const CONFIG_FILENAME = "tempo.config.ts";
@@ -16,20 +16,23 @@ const CI_ENV_VARS = [
 
 // Register virtual modules so config files can `import from "@xevion/tempo"`
 // without a project-level package.json or node_modules.
-// Only available under Bun — other runtimes require tempo as a real dependency.
-const tempoSrc = resolve(dirname(fileURLToPath(import.meta.url)));
+// When running from the bundled dist/cli.mjs, source files live in sibling src/.
+const selfDir = resolve(dirname(fileURLToPath(import.meta.url)));
+const tempoSrc = existsSync(join(selfDir, "index.ts"))
+	? selfDir
+	: resolve(selfDir, "..", "src");
+
+const subpathExports: Record<string, string> = {
+	"@xevion/tempo": join(tempoSrc, "index.ts"),
+	"@xevion/tempo/proc": join(tempoSrc, "proc.ts"),
+	"@xevion/tempo/fmt": join(tempoSrc, "fmt.ts"),
+	"@xevion/tempo/preflight": join(tempoSrc, "preflight.ts"),
+	"@xevion/tempo/targets": join(tempoSrc, "targets.ts"),
+	"@xevion/tempo/watch": join(tempoSrc, "watch.ts"),
+	"@xevion/tempo/octocov": join(tempoSrc, "octocov.ts"),
+};
 
 if ("Bun" in globalThis) {
-	const subpathExports: Record<string, string> = {
-		"@xevion/tempo": join(tempoSrc, "index.ts"),
-		"@xevion/tempo/proc": join(tempoSrc, "proc.ts"),
-		"@xevion/tempo/fmt": join(tempoSrc, "fmt.ts"),
-		"@xevion/tempo/preflight": join(tempoSrc, "preflight.ts"),
-		"@xevion/tempo/targets": join(tempoSrc, "targets.ts"),
-		"@xevion/tempo/watch": join(tempoSrc, "watch.ts"),
-		"@xevion/tempo/octocov": join(tempoSrc, "octocov.ts"),
-	};
-
 	const { plugin } = await import("bun");
 	plugin({
 		name: "tempo-self-resolve",
@@ -42,6 +45,25 @@ if ("Bun" in globalThis) {
 			}
 		},
 	});
+} else {
+	// Node.js: register a custom resolve hook via module.register()
+	const { register } = await import("node:module");
+	const mapping = Object.fromEntries(
+		Object.entries(subpathExports).map(([spec, path]) => [
+			spec,
+			pathToFileURL(path).href,
+		]),
+	);
+	const loaderCode = `
+		const mapping = ${JSON.stringify(mapping)};
+		export function resolve(specifier, context, nextResolve) {
+			if (mapping[specifier]) {
+				return { url: mapping[specifier], shortCircuit: true };
+			}
+			return nextResolve(specifier, context);
+		}
+	`;
+	register(`data:text/javascript,${encodeURIComponent(loaderCode)}`);
 }
 
 function detectCI(config: TempoConfig): boolean {

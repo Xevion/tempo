@@ -18,6 +18,22 @@ export default defineConfig({
 				"format-check": "format-apply",
 			},
 		},
+		test: {
+			aliases: ["tests"],
+			commands: {
+				smoke: "bun test tests/smoke.test.ts",
+				"compat-bun":
+					"bun test tests/compat.test.ts --test-name-pattern 'cross-runtime: bun|no bun-specific'",
+				"compat-node": {
+					cmd: "bun test tests/compat.test.ts --test-name-pattern 'cross-runtime: node'",
+					requires: ["node"],
+				},
+				"compat-deno": {
+					cmd: "bun test tests/compat.test.ts --test-name-pattern 'cross-runtime: deno'",
+					requires: ["deno"],
+				},
+			},
+		},
 		ci: {
 			aliases: ["actions"],
 			commands: {
