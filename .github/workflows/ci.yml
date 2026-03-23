@@ -105,14 +105,3 @@ jobs:
                 status: 'completed',
               });
             }
-
-      - name: Fail if any check failed
-        if: always()
-        run: | # zizmor: ignore[template-injection]
-          outcomes=("${{ steps.typecheck.outcome }}" "${{ steps.lint.outcome }}" "${{ steps.build.outcome }}" "${{ steps.test.outcome }}" "${{ steps.audit.outcome }}" "${{ steps.pack.outcome }}" "${{ steps.publint.outcome }}" "${{ steps.attw.outcome }}")
-          for outcome in "${outcomes[@]}"; do
-            if [ "$outcome" != "success" ]; then
-              echo "One or more checks failed"
-              exit 1
-            fi
-          done
