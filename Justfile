@@ -1,13 +1,20 @@
 default: check
 
-# Type-check, lint, test, and validate package
+# Type-check, lint, build, test, and validate package
 check:
     bunx tsc --noEmit
     bunx biome check .
+    actionlint
+    zizmor .github/
+    bun run build
     bun test
     npm pack --dry-run
     bunx publint --strict
     bunx @arethetypeswrong/cli --pack .
+
+# Build the CLI binary
+build:
+    bun run build
 
 # Run tests
 test:
