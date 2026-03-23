@@ -60,6 +60,11 @@ jobs:
         env:
           TEMPO_CI_COMPAT: "1"
 
+      - name: Audit
+        id: audit
+        run: bun audit
+        continue-on-error: true
+
       - name: Pack Dry Run
         id: pack
         run: npm pack --dry-run
@@ -85,6 +90,7 @@ jobs:
               { name: 'Lint', outcome: '${{ steps.lint.outcome }}' },
               { name: 'Build CLI', outcome: '${{ steps.build.outcome }}' },
               { name: 'Tests', outcome: '${{ steps.test.outcome }}' },
+              { name: 'Audit', outcome: '${{ steps.audit.outcome }}' },
               { name: 'Pack Dry Run', outcome: '${{ steps.pack.outcome }}' },
               { name: 'Publint', outcome: '${{ steps.publint.outcome }}' },
               { name: 'Are The Types Wrong', outcome: '${{ steps.attw.outcome }}' },
@@ -103,7 +109,7 @@ jobs:
       - name: Fail if any check failed
         if: always()
         run: | # zizmor: ignore[template-injection]
-          outcomes=("${{ steps.typecheck.outcome }}" "${{ steps.lint.outcome }}" "${{ steps.build.outcome }}" "${{ steps.test.outcome }}" "${{ steps.pack.outcome }}" "${{ steps.publint.outcome }}" "${{ steps.attw.outcome }}")
+          outcomes=("${{ steps.typecheck.outcome }}" "${{ steps.lint.outcome }}" "${{ steps.build.outcome }}" "${{ steps.test.outcome }}" "${{ steps.audit.outcome }}" "${{ steps.pack.outcome }}" "${{ steps.publint.outcome }}" "${{ steps.attw.outcome }}")
           for outcome in "${outcomes[@]}"; do
             if [ "$outcome" != "success" ]; then
               echo "One or more checks failed"

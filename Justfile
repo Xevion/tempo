@@ -22,6 +22,10 @@ test:
 test-compat:
     bun test tests/compat.test.ts
 
+# Audit dependencies for known vulnerabilities
+audit:
+    bun audit
+
 # Format code
 format:
     {{ tempo }} fmt

@@ -49,6 +49,7 @@ export default defineConfig({
 		pkg: {
 			aliases: ["package", "publish"],
 			commands: {
+				audit: "bun audit",
 				pack: "npm pack --dry-run",
 				publint: "bunx publint --strict",
 				attw: "bunx @arethetypeswrong/cli --pack .",
