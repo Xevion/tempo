@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  checks: write
+
+jobs:
+  ci:
+    name: Summary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      - name: Type Check
+        id: typecheck
+        run: bunx tsc --noEmit
+        continue-on-error: true
+
+      - name: Lint
+        id: lint
+        run: bunx biome check src/
+        continue-on-error: true
+
+      - name: Tests
+        id: test
+        run: bun test
+        continue-on-error: true
+
+      - name: Publish Dry Run
+        id: publish
+        run: npm pack --dry-run
+        continue-on-error: true
+
+      - name: Report check statuses
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const checks = [
+              { name: 'Type Check', outcome: '${{ steps.typecheck.outcome }}' },
+              { name: 'Lint', outcome: '${{ steps.lint.outcome }}' },
+              { name: 'Tests', outcome: '${{ steps.test.outcome }}' },
+              { name: 'Publish Dry Run', outcome: '${{ steps.publish.outcome }}' },
+            ];
+            for (const check of checks) {
+              await github.rest.checks.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                head_sha: context.sha,
+                name: check.name,
+                conclusion: check.outcome === 'success' ? 'success' : 'failure',
+                status: 'completed',
+              });
+            }
+
+      - name: Fail if any check failed
+        if: always()
+        run: |
+          outcomes=("${{ steps.typecheck.outcome }}" "${{ steps.lint.outcome }}" "${{ steps.test.outcome }}" "${{ steps.publish.outcome }}")
+          for outcome in "${outcomes[@]}"; do
+            if [ "$outcome" != "success" ]; then
+              echo "One or more checks failed"
+              exit 1
+            fi
+          done
