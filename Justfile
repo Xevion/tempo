@@ -1,16 +1,14 @@
+tempo := "bun run src/cli.ts"
+
 default: check
 
-# Type-check, lint, build, test, and validate package
-check:
-    bunx tsc --noEmit
-    bunx biome check .
-    actionlint
-    zizmor .github/
-    bun run build
-    bun test
-    npm pack --dry-run
-    bunx publint --strict
-    bunx @arethetypeswrong/cli --pack .
+# Run all checks via tempo
+check *args:
+    {{ tempo }} check {{ args }}
+
+# Run checks with auto-fix
+fix:
+    {{ tempo }} check --fix
 
 # Build the CLI binary
 build:
@@ -26,4 +24,4 @@ test-compat:
 
 # Format code
 format:
-    bunx biome check --write
+    {{ tempo }} fmt
