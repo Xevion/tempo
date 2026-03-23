@@ -26,6 +26,14 @@ jobs:
         with:
           bun-version: latest
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
       - run: bun install --frozen-lockfile
 
       - name: Type Check
@@ -42,6 +50,8 @@ jobs:
         id: test
         run: bun test
         continue-on-error: true
+        env:
+          TEMPO_CI_COMPAT: "1"
 
       - name: Pack Dry Run
         id: pack

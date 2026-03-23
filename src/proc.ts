@@ -1,7 +1,26 @@
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { getLogger } from "@logtape/logtape";
 import type { CollectResult, SignalStrategy } from "./types.ts";
 
 const logger = getLogger(["tempo", "proc"]);
+
+/** Promise that resolves with exit code when a ChildProcess exits */
+function onExit(child: ChildProcess): Promise<number> {
+	return new Promise((resolve) => {
+		child.on("exit", (code) => resolve(code ?? 1));
+	});
+}
+
+/** Collect all data from a readable stream into a string */
+function streamToString(stream: NodeJS.ReadableStream | null): Promise<string> {
+	if (!stream) return Promise.resolve("");
+	const chunks: Buffer[] = [];
+	return new Promise((resolve) => {
+		stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+		stream.on("end", () => resolve(Buffer.concat(chunks).toString()));
+		stream.on("error", () => resolve(Buffer.concat(chunks).toString()));
+	});
+}
 
 /** Thrown by ctx.fail() in hooks/preflights to abort with a message */
 export class TempoAbortError extends Error {
@@ -17,7 +36,8 @@ export function resolveCmd(cmd: string | string[]): string[] {
 }
 
 export class ProcessGroup {
-	private children: Set<Bun.Subprocess> = new Set();
+	private children: Set<ChildProcess> = new Set();
+	private exitPromises: Map<ChildProcess, Promise<number>> = new Map();
 	private cleanupFns: (() => void)[] = [];
 	private asyncCleanupFns: (() => Promise<void>)[] = [];
 	private strategy: SignalStrategy;
@@ -84,17 +104,24 @@ export class ProcessGroup {
 			inheritStdin?: boolean;
 			ci?: boolean;
 		},
-	): Bun.Subprocess {
+	): ChildProcess {
 		const args = resolveCmd(cmd);
-		const proc = Bun.spawn(args, {
+		const proc = spawn(args[0], args.slice(1), {
 			cwd: options?.cwd,
 			env: { ...process.env, ...options?.env },
-			stdin: options?.inheritStdin ? "inherit" : "ignore",
-			stdout: "inherit",
-			stderr: "inherit",
+			stdio: [
+				options?.inheritStdin ? "inherit" : "ignore",
+				"inherit",
+				"inherit",
+			],
 		});
 		this.children.add(proc);
-		proc.exited.then(() => this.children.delete(proc));
+		const exitPromise = onExit(proc);
+		this.exitPromises.set(proc, exitPromise);
+		exitPromise.then(() => {
+			this.children.delete(proc);
+			this.exitPromises.delete(proc);
+		});
 		return proc;
 	}
 
@@ -108,16 +135,14 @@ export class ProcessGroup {
 
 	async waitForFirst(): Promise<number> {
 		if (this.children.size === 0) return 0;
-		const exitCode = await Promise.race(
-			[...this.children].map((p) => p.exited),
-		);
+		const exitCode = await Promise.race([...this.exitPromises.values()]);
 		await this.killAll();
 		return exitCode;
 	}
 
 	async waitForAll(): Promise<number> {
 		if (this.children.size === 0) return 0;
-		const codes = await Promise.all([...this.children].map((p) => p.exited));
+		const codes = await Promise.all([...this.exitPromises.values()]);
 		return Math.max(...codes);
 	}
 
@@ -155,9 +180,10 @@ export class ProcessGroup {
 				}
 			}, 5000);
 
-			await Promise.all([...this.children].map((p) => p.exited));
+			await Promise.all([...this.exitPromises.values()]);
 			clearTimeout(timeout);
 			this.children.clear();
+			this.exitPromises.clear();
 
 			ProcessGroup.resetTerminal();
 		} finally {
@@ -180,7 +206,7 @@ export class ProcessGroup {
 	static resetTerminal(): void {
 		process.stdout.write("\x1b[0m\x1b[?25h\x1b[?1049l");
 		try {
-			Bun.spawnSync(["stty", "sane"], { stdin: "inherit" });
+			spawnSync("stty", ["sane"], { stdio: ["inherit", "pipe", "pipe"] });
 		} catch {
 			// stty may not be available
 		}
@@ -193,15 +219,13 @@ export function run(
 	options?: { cwd?: string; env?: Record<string, string> },
 ): void {
 	const args = resolveCmd(cmd);
-	const result = Bun.spawnSync(args, {
+	const result = spawnSync(args[0], args.slice(1), {
 		cwd: options?.cwd,
 		env: { ...process.env, ...options?.env },
-		stdin: "inherit",
-		stdout: "inherit",
-		stderr: "inherit",
+		stdio: "inherit",
 	});
-	if (result.exitCode !== 0) {
-		process.exit(result.exitCode);
+	if (result.status !== 0) {
+		process.exit(result.status ?? 1);
 	}
 }
 
@@ -211,17 +235,15 @@ export function runPiped(
 	options?: { cwd?: string; env?: Record<string, string> },
 ): { stdout: string; stderr: string; exitCode: number } {
 	const args = resolveCmd(cmd);
-	const result = Bun.spawnSync(args, {
+	const result = spawnSync(args[0], args.slice(1), {
 		cwd: options?.cwd,
 		env: { ...process.env, ...options?.env },
-		stdin: "ignore",
-		stdout: "pipe",
-		stderr: "pipe",
+		stdio: ["ignore", "pipe", "pipe"],
 	});
 	return {
-		stdout: result.stdout.toString(),
-		stderr: result.stderr.toString(),
-		exitCode: result.exitCode,
+		stdout: result.stdout?.toString() ?? "",
+		stderr: result.stderr?.toString() ?? "",
+		exitCode: result.status ?? 1,
 	};
 }
 
@@ -237,12 +259,10 @@ export async function spawnCollect(
 	},
 ): Promise<CollectResult> {
 	const args = resolveCmd(cmd);
-	const proc = Bun.spawn(args, {
+	const proc = spawn(args[0], args.slice(1), {
 		cwd: options?.cwd,
 		env: { ...process.env, ...options?.env },
-		stdin: "ignore",
-		stdout: "pipe",
-		stderr: "pipe",
+		stdio: ["ignore", "pipe", "pipe"],
 	});
 
 	let timedOut = false;
@@ -266,11 +286,14 @@ export async function spawnCollect(
 		}, options.timeout * 1000);
 	}
 
-	const exitCode = await proc.exited;
+	const [exitCode, stdout, stderrRaw] = await Promise.all([
+		onExit(proc),
+		streamToString(proc.stdout),
+		streamToString(proc.stderr),
+	]);
 	if (killTimer) clearTimeout(killTimer);
 
-	const stdout = await new Response(proc.stdout).text();
-	let stderr = await new Response(proc.stderr).text();
+	let stderr = stderrRaw;
 	if (timedOut) {
 		stderr = `killed after ${options?.timeout}s timeout\n${stderr}`;
 	}
@@ -302,7 +325,7 @@ export async function raceInOrder<T extends { name: string; stderr: string }>(
 				p.then(
 					(val) => ({ promise: p, val, ok: true as const }),
 					(err) => {
-						const fallback = remaining.get(p)!;
+						const fallback = remaining.get(p) as T;
 						return {
 							promise: p,
 							val: {
@@ -326,11 +349,10 @@ export function hasTool(cmd: string): boolean {
 	const cached = toolCache.get(cmd);
 	if (cached !== undefined) return cached;
 	try {
-		const result = Bun.spawnSync(["which", cmd], {
-			stdout: "pipe",
-			stderr: "pipe",
+		const result = spawnSync("which", [cmd], {
+			stdio: ["ignore", "pipe", "pipe"],
 		});
-		const found = result.exitCode === 0;
+		const found = result.status === 0;
 		toolCache.set(cmd, found);
 		return found;
 	} catch {
@@ -363,11 +385,10 @@ export function warnMissingTool(cmd: string, consequence: string): void {
 
 export function hasDockerDaemon(): boolean {
 	try {
-		const result = Bun.spawnSync(["docker", "info"], {
-			stdout: "pipe",
-			stderr: "pipe",
+		const result = spawnSync("docker", ["info"], {
+			stdio: ["ignore", "pipe", "pipe"],
 		});
-		return result.exitCode === 0;
+		return result.status === 0;
 	} catch {
 		return false;
 	}

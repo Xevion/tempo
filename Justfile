@@ -13,6 +13,10 @@ check:
 test:
     bun test
 
+# Run compatibility tests only
+test-compat:
+    bun test tests/compat.test.ts
+
 # Format code
 format:
     bunx biome check --write

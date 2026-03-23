@@ -264,7 +264,8 @@ export async function runCheck(
 		remaining.delete(result.name);
 		results.set(result.name, result);
 
-		const check = checks.find((ch) => ch.name === result.name)!;
+		const check = checks.find((ch) => ch.name === result.name);
+		if (!check) return;
 		const checkOpts =
 			config.check?.options?.[result.name as `${string}:${string}`];
 		const { opts } = resolveCommandDef(check.def);

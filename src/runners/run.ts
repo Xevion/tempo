@@ -8,6 +8,7 @@ import type {
 	CommandFlagDef,
 	CommandSpec,
 	CustomCommandEntry,
+	InferFlags,
 	InlineCommandSpec,
 	ResolvedConfig,
 } from "../types.ts";
@@ -131,7 +132,7 @@ async function executeSpec(
 		return await spec.run({
 			group,
 			config,
-			flags: flags as any,
+			flags: flags as InferFlags<Record<string, CommandFlagDef>>,
 			args: positional,
 			run,
 			runPiped,

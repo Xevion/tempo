@@ -6,8 +6,8 @@ Step-by-step guide for replacing ad-hoc scripts with tempo's config-driven runne
 
 ## Prerequisites
 
-- **Bun** installed (tempo ships raw `.ts`, Bun-only)
-- **tempo** available — either via `bun link` (development) or `bunx tempo` / global install (production)
+- A supported runtime: **Bun**, **Node.js 22+** (with `--experimental-strip-types`), or **Deno**
+- **tempo** available — either via `bun link` (development) or `bunx tempo` / `npx tempo` / global install (production)
 
 ## 1. Make tempo available
 

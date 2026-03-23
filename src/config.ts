@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { plugin } from "bun";
+import { fileURLToPath } from "node:url";
 import type { ResolvedConfig, TempoConfig } from "./types.ts";
 
 const CONFIG_FILENAME = "tempo.config.ts";
@@ -16,30 +16,33 @@ const CI_ENV_VARS = [
 
 // Register virtual modules so config files can `import from "@xevion/tempo"`
 // without a project-level package.json or node_modules.
-// Uses build.module() which works for dynamic import() in current Bun versions,
-// unlike onResolve() which only intercepts bundler-time resolution.
-const tempoSrc = resolve(import.meta.dir);
-const subpathExports: Record<string, string> = {
-	"@xevion/tempo": join(tempoSrc, "index.ts"),
-	"@xevion/tempo/proc": join(tempoSrc, "proc.ts"),
-	"@xevion/tempo/fmt": join(tempoSrc, "fmt.ts"),
-	"@xevion/tempo/preflight": join(tempoSrc, "preflight.ts"),
-	"@xevion/tempo/targets": join(tempoSrc, "targets.ts"),
-	"@xevion/tempo/watch": join(tempoSrc, "watch.ts"),
-	"@xevion/tempo/octocov": join(tempoSrc, "octocov.ts"),
-};
+// Only available under Bun — other runtimes require tempo as a real dependency.
+const tempoSrc = resolve(dirname(fileURLToPath(import.meta.url)));
 
-plugin({
-	name: "tempo-self-resolve",
-	setup(build) {
-		for (const [specifier, filePath] of Object.entries(subpathExports)) {
-			build.module(specifier, () => ({
-				contents: `export * from "${filePath}";`,
-				loader: "ts",
-			}));
-		}
-	},
-});
+if ("Bun" in globalThis) {
+	const subpathExports: Record<string, string> = {
+		"@xevion/tempo": join(tempoSrc, "index.ts"),
+		"@xevion/tempo/proc": join(tempoSrc, "proc.ts"),
+		"@xevion/tempo/fmt": join(tempoSrc, "fmt.ts"),
+		"@xevion/tempo/preflight": join(tempoSrc, "preflight.ts"),
+		"@xevion/tempo/targets": join(tempoSrc, "targets.ts"),
+		"@xevion/tempo/watch": join(tempoSrc, "watch.ts"),
+		"@xevion/tempo/octocov": join(tempoSrc, "octocov.ts"),
+	};
+
+	const { plugin } = await import("bun");
+	plugin({
+		name: "tempo-self-resolve",
+		setup(build) {
+			for (const [specifier, filePath] of Object.entries(subpathExports)) {
+				build.module(specifier, () => ({
+					contents: `export * from "${filePath}";`,
+					loader: "ts",
+				}));
+			}
+		},
+	});
+}
 
 function detectCI(config: TempoConfig): boolean {
 	if (config.ci?.enabled !== undefined) return config.ci.enabled;

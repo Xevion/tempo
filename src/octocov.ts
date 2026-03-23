@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { runPiped } from "./proc.ts";
 
 /** The artifact datastore pattern used in CI .octocov.yml configs */
+// biome-ignore lint/suspicious/noTemplateCurlyInString: intentional shell variable interpolation for .octocov.yml
 export const ARTIFACT_STORE = "artifact://${GITHUB_REPOSITORY}";
 
 /** The local datastore path used for dev/local octocov runs */

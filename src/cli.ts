@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 import { cli, command } from "cleye";
 import pkg from "../package.json";
 import { loadConfig } from "./config.ts";
@@ -252,9 +251,10 @@ const runCommand = command(
 		if (!name) {
 			console.error("Usage: tempo run <name> [args...]");
 			await shutdown(1);
+			return;
 		}
 
-		const exitCode = await runCustom(config, name!, argv._.args ?? []);
+		const exitCode = await runCustom(config, name, argv._.args ?? []);
 		await shutdown(exitCode);
 	},
 );

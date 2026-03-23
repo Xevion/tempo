@@ -2,15 +2,19 @@
 	"name": "@xevion/tempo",
 	"version": "0.1.0",
 	"type": "module",
-	"description": "Consolidated Bun-based developer scripts with composable primitives and config-driven runners",
+	"description": "Consolidated developer scripts with composable primitives and config-driven runners",
 	"author": "Xevion",
 	"license": "LGPL-3.0-or-later",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/Xevion/tempo.git"
+		"url": "git+https://github.com/Xevion/tempo.git"
 	},
 	"bin": {
-		"tempo": "./src/cli.ts"
+		"tempo": "./dist/cli.mjs"
+	},
+	"scripts": {
+		"build": "bun build src/cli.ts --outfile dist/cli.mjs --target node --format esm --packages external --banner '#!/usr/bin/env node'",
+		"prepublishOnly": "bun run build"
 	},
 	"exports": {
 		".": {
@@ -43,7 +47,8 @@
 		}
 	},
 	"files": [
-		"src/"
+		"src/",
+		"dist/"
 	],
 	"dependencies": {
 		"@catppuccin/palette": "^1.8.0",
@@ -53,7 +58,8 @@
 		"cleye": "^2.3.0"
 	},
 	"engines": {
-		"bun": ">=1.0.0"
+		"bun": ">=1.0.0",
+		"node": ">=22.0.0"
 	},
 	"publishConfig": {
 		"access": "public"

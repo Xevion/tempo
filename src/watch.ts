@@ -1,8 +1,15 @@
+import { type ChildProcess, spawn } from "node:child_process";
 import { type FSWatcher, watch } from "node:fs";
 import { join } from "node:path";
 import { getLogger } from "@logtape/logtape";
 import { elapsed } from "./fmt.ts";
 import { type ProcessGroup, resolveCmd } from "./proc.ts";
+
+function onExit(child: ChildProcess): Promise<number> {
+	return new Promise((resolve) => {
+		child.on("exit", (code) => resolve(code ?? 1));
+	});
+}
 
 const logger = getLogger(["tempo", "watch"]);
 
@@ -15,8 +22,8 @@ type WatcherState =
 
 export class BackendWatcher {
 	private state: WatcherState = "building";
-	private server: Bun.Subprocess | null = null;
-	private buildProc: Bun.Subprocess | null = null;
+	private server: ChildProcess | null = null;
+	private buildProc: ChildProcess | null = null;
 	private watchers: FSWatcher[] = [];
 	private dirty = false;
 	private debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -141,15 +148,17 @@ export class BackendWatcher {
 		const start = Date.now();
 		logger.info("building {cmd}", { cmd: this.buildCmd.join(" ") });
 
-		this.buildProc = Bun.spawn(this.buildCmd, {
+		this.buildProc = spawn(this.buildCmd[0], this.buildCmd.slice(1), {
 			cwd: this.cwd,
 			env: { ...process.env, ...this.env },
-			stdin: "ignore",
-			stdout: this.verboseBuild ? "inherit" : "pipe",
-			stderr: this.verboseBuild ? "inherit" : "pipe",
+			stdio: [
+				"ignore",
+				this.verboseBuild ? "inherit" : "pipe",
+				this.verboseBuild ? "inherit" : "pipe",
+			],
 		});
 
-		const exitCode = await this.buildProc.exited;
+		const exitCode = await onExit(this.buildProc);
 		this.buildProc = null;
 
 		if (exitCode !== 0) {
@@ -195,7 +204,7 @@ export class BackendWatcher {
 					// already dead
 				}
 			}, 3000);
-			await this.server.exited;
+			await onExit(this.server);
 			clearTimeout(timeout);
 			this.server = null;
 		}
@@ -204,12 +213,10 @@ export class BackendWatcher {
 
 	private async startServer(): Promise<void> {
 		const fullCmd = [...this.runCmd, ...this.passthrough];
-		this.server = Bun.spawn(fullCmd, {
+		this.server = spawn(fullCmd[0], fullCmd.slice(1), {
 			cwd: this.cwd,
 			env: { ...process.env, ...this.env },
-			stdin: "inherit",
-			stdout: "inherit",
-			stderr: "inherit",
+			stdio: "inherit",
 		});
 		this.state = "running";
 		logger.info("server started pid {pid}", { pid: this.server.pid });
@@ -238,7 +245,7 @@ export class BackendWatcher {
 
 		if (this.buildProc) {
 			this.buildProc.kill("SIGTERM");
-			await this.buildProc.exited;
+			await onExit(this.buildProc);
 		}
 		if (this.server) {
 			this.server.kill("SIGTERM");
@@ -249,7 +256,7 @@ export class BackendWatcher {
 					// already dead
 				}
 			}, 3000);
-			await this.server.exited;
+			await onExit(this.server);
 			clearTimeout(timeout);
 		}
 	}

@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, globSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { getLogger } from "@logtape/logtape";
 import { elapsed } from "./fmt.ts";
@@ -9,10 +9,10 @@ const logger = getLogger(["tempo", "preflight"]);
 export function newestMtime(dir: string, pattern: string): number {
 	if (!existsSync(dir)) return 0;
 
-	const glob = new Bun.Glob(pattern);
+	const matches = globSync(pattern, { cwd: dir });
 	let newest = 0;
 
-	for (const match of glob.scanSync({ cwd: dir })) {
+	for (const match of matches) {
 		try {
 			const stat = statSync(join(dir, match));
 			if (stat.mtimeMs > newest) {

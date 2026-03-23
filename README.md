@@ -1,14 +1,12 @@
 # @xevion/tempo
 
-Consolidated developer scripts for Bun projects. Composable primitives and config-driven runners that replace scattered shell scripts with type-safe, structured tooling.
+Consolidated developer scripts with composable primitives and config-driven runners that replace scattered shell scripts with type-safe, structured tooling. Works with Bun, Node.js (22+), and Deno.
 
 ## Install
 
 ```bash
-bun add -d @xevion/tempo
+bun add -d @xevion/tempo    # or npm/pnpm/yarn
 ```
-
-> **Bun only.** This package ships raw TypeScript and uses Bun APIs directly.
 
 ## Usage
 

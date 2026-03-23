@@ -5,7 +5,12 @@ import { go } from "./presets/go.ts";
 import { gradle } from "./presets/gradle.ts";
 import { rust } from "./presets/rust.ts";
 import { ProcessGroup, run, runPiped } from "./proc.ts";
-import type { CommandFlagDef, CommandSpec, TempoConfig } from "./types.ts";
+import type {
+	CommandFlagDef,
+	CommandSpec,
+	InferFlags,
+	TempoConfig,
+} from "./types.ts";
 
 export type {
 	AutoFixStrategy,
@@ -80,7 +85,7 @@ export function defineCommand<
 			spec.run({
 				group,
 				config: null,
-				flags: flags as any,
+				flags: flags as InferFlags<TFlags>,
 				args: positional,
 				run,
 				runPiped,

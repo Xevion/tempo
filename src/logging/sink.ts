@@ -109,18 +109,16 @@ function formatRecord(record: LogRecord): string {
 /**
  * A colorful stderr sink using the Catppuccin Mocha palette.
  *
- * Writes formatted log lines to stderr via Bun.stderr.
+ * Writes formatted log lines to stderr.
  */
 export function getColoredStderrSink(): Sink {
-	const writer = Bun.stderr.writer();
 	const sink: Sink & Disposable = Object.assign(
 		(record: LogRecord) => {
-			writer.write(formatRecord(record));
-			writer.flush();
+			process.stderr.write(formatRecord(record));
 		},
 		{
 			[Symbol.dispose]() {
-				writer.flush();
+				// no-op: process.stderr doesn't need explicit flushing
 			},
 		},
 	);
