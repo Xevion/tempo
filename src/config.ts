@@ -16,21 +16,42 @@ const CI_ENV_VARS = [
 
 // Register virtual modules so config files can `import from "@xevion/tempo"`
 // without a project-level package.json or node_modules.
-// When running from the bundled dist/cli.mjs, source files live in sibling src/.
+// Under Bun: resolve to src/*.ts (native TS support).
+// Under Node: resolve to dist/*.mjs (pre-built JS, since Node can't strip
+// types from files inside node_modules).
 const selfDir = resolve(dirname(fileURLToPath(import.meta.url)));
-const tempoSrc = existsSync(join(selfDir, "index.ts"))
-	? selfDir
-	: resolve(selfDir, "..", "src");
+const isBun = "Bun" in globalThis;
 
-const subpathExports: Record<string, string> = {
-	"@xevion/tempo": join(tempoSrc, "index.ts"),
-	"@xevion/tempo/proc": join(tempoSrc, "proc.ts"),
-	"@xevion/tempo/fmt": join(tempoSrc, "fmt.ts"),
-	"@xevion/tempo/preflight": join(tempoSrc, "preflight.ts"),
-	"@xevion/tempo/targets": join(tempoSrc, "targets.ts"),
-	"@xevion/tempo/watch": join(tempoSrc, "watch.ts"),
-	"@xevion/tempo/octocov": join(tempoSrc, "octocov.ts"),
-};
+function resolveExportPath(name: string): string {
+	if (isBun) {
+		// Bun can load .ts directly — prefer src/
+		const srcDir = existsSync(join(selfDir, "index.ts"))
+			? selfDir
+			: resolve(selfDir, "..", "src");
+		return join(srcDir, `${name}.ts`);
+	}
+	// Node — use pre-built dist/*.mjs
+	const distDir = existsSync(join(selfDir, "index.mjs"))
+		? selfDir
+		: resolve(selfDir, "..", "dist");
+	return join(distDir, `${name}.mjs`);
+}
+
+const SUBPATH_NAMES = [
+	"index",
+	"proc",
+	"fmt",
+	"preflight",
+	"targets",
+	"watch",
+	"octocov",
+] as const;
+const subpathExports: Record<string, string> = {};
+for (const name of SUBPATH_NAMES) {
+	const specifier =
+		name === "index" ? "@xevion/tempo" : `@xevion/tempo/${name}`;
+	subpathExports[specifier] = resolveExportPath(name);
+}
 
 if ("Bun" in globalThis) {
 	const { plugin } = await import("bun");

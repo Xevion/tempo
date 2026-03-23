@@ -13,37 +13,45 @@
 		"tempo": "./dist/cli.mjs"
 	},
 	"scripts": {
-		"build": "bun build src/cli.ts --outfile dist/cli.mjs --target node --format esm --packages external --banner '#!/usr/bin/env node'",
-		"prepublishOnly": "bun run build"
+		"build": "bun build src/index.ts src/proc.ts src/fmt.ts src/preflight.ts src/targets.ts src/watch.ts src/octocov.ts --outdir dist --root src --target node --format esm --packages external --splitting --entry-naming '[dir]/[name].mjs' --chunk-naming '[name]-[hash].mjs' && bun build src/cli.ts --outfile dist/cli.mjs --target node --format esm --packages external --banner '#!/usr/bin/env node'",
+		"prepublishOnly": "bun run build",
+		"test:install": "TARBALL=$(npm pack --pack-destination /tmp) && npm install -g \"/tmp/$TARBALL\""
 	},
 	"exports": {
 		".": {
 			"bun": "./src/index.ts",
-			"default": "./src/index.ts"
+			"types": "./src/index.ts",
+			"default": "./dist/index.mjs"
 		},
 		"./proc": {
 			"bun": "./src/proc.ts",
-			"default": "./src/proc.ts"
+			"types": "./src/proc.ts",
+			"default": "./dist/proc.mjs"
 		},
 		"./fmt": {
 			"bun": "./src/fmt.ts",
-			"default": "./src/fmt.ts"
+			"types": "./src/fmt.ts",
+			"default": "./dist/fmt.mjs"
 		},
 		"./preflight": {
 			"bun": "./src/preflight.ts",
-			"default": "./src/preflight.ts"
+			"types": "./src/preflight.ts",
+			"default": "./dist/preflight.mjs"
 		},
 		"./targets": {
 			"bun": "./src/targets.ts",
-			"default": "./src/targets.ts"
+			"types": "./src/targets.ts",
+			"default": "./dist/targets.mjs"
 		},
 		"./watch": {
 			"bun": "./src/watch.ts",
-			"default": "./src/watch.ts"
+			"types": "./src/watch.ts",
+			"default": "./dist/watch.mjs"
 		},
 		"./octocov": {
 			"bun": "./src/octocov.ts",
-			"default": "./src/octocov.ts"
+			"types": "./src/octocov.ts",
+			"default": "./dist/octocov.mjs"
 		}
 	},
 	"files": [
