@@ -1,9 +1,13 @@
 default: check
 
-# Type-check and lint
+# Type-check, lint, test, and validate package
 check:
     bunx tsc --noEmit
-    bunx biome check src/
+    bunx biome check .
+    bun test
+    npm pack --dry-run
+    bunx publint --strict
+    bunx @arethetypeswrong/cli --pack .
 
 # Run tests
 test:
@@ -11,4 +15,4 @@ test:
 
 # Format code
 format:
-    bunx biome check --write src/
+    bunx biome check --write
