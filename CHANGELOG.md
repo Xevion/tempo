@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.2](https://github.com/Xevion/tempo/compare/v0.1.1...v0.1.2) (2026-03-23)
+
+
+### Features
+
+* build all library entrypoints to dist/ for Node.js compatibility ([4ca56e4](https://github.com/Xevion/tempo/commit/4ca56e4e054d9e567a8c10a97173c67e5fd08e4b))
+* extend self-registration to Node.js via module.register() ([c8a8af4](https://github.com/Xevion/tempo/commit/c8a8af40f9c6e402990c66e0226cefe3f9d9f117))
+
+
+### Continuous Integration
+
+* add dependency audit step to CI pipeline ([bd6a62a](https://github.com/Xevion/tempo/commit/bd6a62a3be4f76f3e6317e0c4913bbcef29500e6))
+* delete redundant fail-if-any-check-failed step ([0319daf](https://github.com/Xevion/tempo/commit/0319daf2b53ba40b8fc7b5391bf3862325023a9a))
+
 ## [0.1.1](https://github.com/Xevion/tempo/compare/v0.1.0...v0.1.1) (2026-03-23)
 
 
