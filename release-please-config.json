@@ -23,10 +23,10 @@
 				{ "type": "docs", "section": "Documentation", "hidden": false },
 				{ "type": "refactor", "section": "Code Refactoring", "hidden": false },
 				{ "type": "style", "section": "Styles", "hidden": true },
-				{ "type": "chore", "section": "Miscellaneous", "hidden": true },
-				{ "type": "test", "section": "Tests", "hidden": true },
-				{ "type": "build", "section": "Build System", "hidden": true },
-				{ "type": "ci", "section": "Continuous Integration", "hidden": true }
+				{ "type": "chore", "section": "Miscellaneous", "hidden": false },
+				{ "type": "test", "section": "Tests", "hidden": false },
+				{ "type": "build", "section": "Build System", "hidden": false },
+				{ "type": "ci", "section": "Continuous Integration", "hidden": false }
 			]
 		}
 	}

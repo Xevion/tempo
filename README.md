@@ -1,6 +1,6 @@
 # @xevion/tempo
 
-Consolidated developer scripts with composable primitives and config-driven runners that replace scattered shell scripts with type-safe, structured tooling. Works with Bun, Node.js (22+), and Deno.
+Composable primitives and config-driven runners that replace scattered shell scripts with type-safe, structured tooling. Works with Bun, Node.js (22+), and Deno.
 
 ## Install
 
@@ -8,7 +8,7 @@ Consolidated developer scripts with composable primitives and config-driven runn
 bun add -d @xevion/tempo    # or npm/pnpm/yarn
 ```
 
-## Usage
+## Quick Start
 
 Create a `tempo.config.ts` in your project root:
 
@@ -31,25 +31,34 @@ export default defineConfig({
 });
 ```
 
-Run via the CLI:
+Then run via the CLI:
 
 ```bash
-bunx tempo check        # parallel checks with spinner UI
-bunx tempo dev          # managed dev processes
-bunx tempo fmt          # sequential formatting
-bunx tempo lint         # sequential linting
-bunx tempo pre-commit   # staged-file formatter
-bunx tempo run <name>   # custom commands
+tempo check        # parallel checks with spinner UI
+tempo dev          # managed dev processes
+tempo fmt          # sequential formatting
+tempo lint         # sequential linting
+tempo pre-commit   # staged-file formatter
+tempo run <name>   # custom commands
 ```
+
+## Architecture
+
+Two layers:
+
+- **Primitives** — low-level utilities (`ProcessGroup`, `run`, `runPiped`, `BackendWatcher`, etc.) exported via subpath imports for use in custom scripts
+- **Runners** — config-driven orchestrators invoked through the `tempo` CLI that handle check, dev, fmt, lint, pre-commit, and custom command workflows
 
 ## Presets
 
 Built-in presets for common toolchains:
 
-- **`presets.biome`** — Biome + SvelteKit
-- **`presets.rust`** — Rust (cargo check, clippy, test, fmt)
-- **`presets.go`** — Go (vet, staticcheck, test, gofumpt)
-- **`presets.gradle`** — Gradle/Kotlin (detekt, test, ktlintFormat)
+| Preset | Toolchain |
+|--------|-----------|
+| `presets.biome` | Biome + SvelteKit |
+| `presets.rust` | cargo check, clippy, test, fmt |
+| `presets.go` | vet, staticcheck, test, gofumpt |
+| `presets.gradle` | Gradle/Kotlin (detekt, test, ktlintFormat) |
 
 ## Subpath Exports
 
@@ -66,7 +75,7 @@ import { createOctocovConfig } from "@xevion/tempo/octocov";
 
 ## Custom Commands
 
-Define reusable commands with typed flags:
+Define reusable commands with typed flags that work both via `tempo run` and direct execution:
 
 ```ts
 import { defineCommand } from "@xevion/tempo";
