@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { plugin } from "bun";
-import type { ResolvedConfig, TempoConfig } from "./types";
+import type { ResolvedConfig, TempoConfig } from "./types.ts";
 
 const CONFIG_FILENAME = "tempo.config.ts";
 

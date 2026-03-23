@@ -1,4 +1,4 @@
-import type { SubsystemConfig } from "../types";
+import type { SubsystemConfig } from "../types.ts";
 
 export interface RustPresetOptions {
 	manifestPath?: string;

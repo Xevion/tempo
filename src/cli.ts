@@ -1,16 +1,16 @@
 #!/usr/bin/env bun
 import { cli, command } from "cleye";
 import pkg from "../package.json";
-import { loadConfig } from "./config";
-import { parseFlagsFromArgv } from "./flags";
-import { setupLogging, teardownLogging } from "./logging/setup";
-import { runCheck } from "./runners/check";
-import { runDev } from "./runners/dev";
-import { runFmt } from "./runners/fmt";
-import { runLint } from "./runners/lint";
-import { runPreCommit } from "./runners/pre-commit";
-import { runCustom } from "./runners/run";
-import type { CommandFlagDef, DevFlag } from "./types";
+import { loadConfig } from "./config.ts";
+import { parseFlagsFromArgv } from "./flags.ts";
+import { setupLogging, teardownLogging } from "./logging/setup.ts";
+import { runCheck } from "./runners/check.ts";
+import { runDev } from "./runners/dev.ts";
+import { runFmt } from "./runners/fmt.ts";
+import { runLint } from "./runners/lint.ts";
+import { runPreCommit } from "./runners/pre-commit.ts";
+import { runCustom } from "./runners/run.ts";
+import type { CommandFlagDef, DevFlag } from "./types.ts";
 
 function extractGlobalFlags(): {
 	verbosity: number;

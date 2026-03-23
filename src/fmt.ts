@@ -3,8 +3,8 @@ export {
 	formatTokens,
 	termWidth,
 	wordWrap,
-} from "./utils/format";
-export { c, strip } from "./utils/theme";
+} from "./utils/format.ts";
+export { c, strip } from "./utils/theme.ts";
 
 export function elapsed(start: number): string {
 	return ((Date.now() - start) / 1000).toFixed(1);

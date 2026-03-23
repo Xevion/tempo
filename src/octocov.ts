@@ -7,7 +7,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runPiped } from "./proc";
+import { runPiped } from "./proc.ts";
 
 /** The artifact datastore pattern used in CI .octocov.yml configs */
 export const ARTIFACT_STORE = "artifact://${GITHUB_REPOSITORY}";

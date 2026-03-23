@@ -1,16 +1,16 @@
 import { resolve } from "node:path";
 import { getLogger } from "@logtape/logtape";
-import { parseFlagsFromArgv } from "../flags";
-import * as fmt from "../fmt";
-import { c } from "../fmt";
-import { ProcessGroup, run, runPiped } from "../proc";
+import { parseFlagsFromArgv } from "../flags.ts";
+import * as fmt from "../fmt.ts";
+import { c } from "../fmt.ts";
+import { ProcessGroup, run, runPiped } from "../proc.ts";
 import type {
 	CommandFlagDef,
 	CommandSpec,
 	CustomCommandEntry,
 	InlineCommandSpec,
 	ResolvedConfig,
-} from "../types";
+} from "../types.ts";
 
 const logger = getLogger(["tempo", "run"]);
 

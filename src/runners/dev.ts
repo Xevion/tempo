@@ -1,9 +1,9 @@
 import { resolve } from "node:path";
 import { getLogger } from "@logtape/logtape";
-import { ProcessGroup, TempoAbortError } from "../proc";
-import { isAll, resolveTargets, targetLabel } from "../targets";
-import type { HookContext, ResolvedConfig, TempoLogger } from "../types";
-import { BackendWatcher } from "../watch";
+import { ProcessGroup, TempoAbortError } from "../proc.ts";
+import { isAll, resolveTargets, targetLabel } from "../targets.ts";
+import type { HookContext, ResolvedConfig, TempoLogger } from "../types.ts";
+import { BackendWatcher } from "../watch.ts";
 
 const logger = getLogger(["tempo", "dev"]);
 

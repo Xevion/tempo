@@ -1,8 +1,8 @@
 import { type FSWatcher, watch } from "node:fs";
 import { join } from "node:path";
 import { getLogger } from "@logtape/logtape";
-import { elapsed } from "./fmt";
-import { type ProcessGroup, resolveCmd } from "./proc";
+import { elapsed } from "./fmt.ts";
+import { type ProcessGroup, resolveCmd } from "./proc.ts";
 
 const logger = getLogger(["tempo", "watch"]);
 

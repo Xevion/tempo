@@ -1,4 +1,4 @@
-import type { CommandFlagDef } from "./types";
+import type { CommandFlagDef } from "./types.ts";
 
 /** Parse argv against a flag spec, returning typed flags and leftover positional args */
 export function parseFlagsFromArgv(

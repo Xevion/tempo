@@ -1,5 +1,5 @@
 import { getLogger } from "@logtape/logtape";
-import type { CollectResult, SignalStrategy } from "./types";
+import type { CollectResult, SignalStrategy } from "./types.ts";
 
 const logger = getLogger(["tempo", "proc"]);
 

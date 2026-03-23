@@ -1,14 +1,14 @@
 import { resolve } from "node:path";
 import { getLogger } from "@logtape/logtape";
-import { c } from "../fmt";
+import { c } from "../fmt.ts";
 import {
 	collectRequires,
 	getMissingTools,
 	resolveCmd,
 	run,
 	runPiped,
-} from "../proc";
-import type { CommandDef, ResolvedConfig } from "../types";
+} from "../proc.ts";
+import type { CommandDef, ResolvedConfig } from "../types.ts";
 
 const logger = getLogger(["tempo", "pre-commit"]);
 

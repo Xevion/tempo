@@ -1,4 +1,4 @@
-import type { SubsystemConfig, TargetResult } from "./types";
+import type { SubsystemConfig, TargetResult } from "./types.ts";
 
 /** Resolve CLI target strings to subsystem names via alias lookup */
 export function resolveTargets<T extends string>(

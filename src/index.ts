@@ -1,11 +1,11 @@
-import { parseFlagsFromArgv } from "./flags";
-import * as fmt from "./fmt";
-import { biome } from "./presets/biome";
-import { go } from "./presets/go";
-import { gradle } from "./presets/gradle";
-import { rust } from "./presets/rust";
-import { ProcessGroup, run, runPiped } from "./proc";
-import type { CommandFlagDef, CommandSpec, TempoConfig } from "./types";
+import { parseFlagsFromArgv } from "./flags.ts";
+import * as fmt from "./fmt.ts";
+import { biome } from "./presets/biome.ts";
+import { go } from "./presets/go.ts";
+import { gradle } from "./presets/gradle.ts";
+import { rust } from "./presets/rust.ts";
+import { ProcessGroup, run, runPiped } from "./proc.ts";
+import type { CommandFlagDef, CommandSpec, TempoConfig } from "./types.ts";
 
 export type {
 	AutoFixStrategy,
@@ -39,13 +39,13 @@ export type {
 	TempoConfig,
 	TempoLogger,
 	UnmanagedProcess,
-} from "./types";
+} from "./types.ts";
 
 export {
 	parseIntOption,
 	resolveEnumOption,
 	ValidationError,
-} from "./utils/validation";
+} from "./utils/validation.ts";
 
 /** Type-safe config helper — preserves subsystem name literals for downstream inference */
 export function defineConfig<const TSubsystems extends string>(

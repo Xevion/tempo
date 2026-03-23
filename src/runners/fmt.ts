@@ -1,8 +1,8 @@
 import { resolve } from "node:path";
 import { getLogger } from "@logtape/logtape";
-import { collectRequires, getMissingTools, resolveCmd, run } from "../proc";
-import { isAll, resolveTargets, targetLabel } from "../targets";
-import type { CommandDef, ResolvedConfig } from "../types";
+import { collectRequires, getMissingTools, resolveCmd, run } from "../proc.ts";
+import { isAll, resolveTargets, targetLabel } from "../targets.ts";
+import type { CommandDef, ResolvedConfig } from "../types.ts";
 
 const logger = getLogger(["tempo", "fmt"]);
 

@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { getLogger } from "@logtape/logtape";
-import { c, elapsed, isStderrTTY } from "../fmt";
-import { ensureFreshAsync, newestMtime } from "../preflight";
+import { c, elapsed, isStderrTTY } from "../fmt.ts";
+import { ensureFreshAsync, newestMtime } from "../preflight.ts";
 import {
 	collectRequires,
 	getMissingTools,
@@ -10,8 +10,8 @@ import {
 	run,
 	spawnCollect,
 	TempoAbortError,
-} from "../proc";
-import { isAll, resolveTargets, targetLabel } from "../targets";
+} from "../proc.ts";
+import { isAll, resolveTargets, targetLabel } from "../targets.ts";
 import type {
 	CheckInfo,
 	CollectResult,
@@ -21,7 +21,7 @@ import type {
 	HookContext,
 	ResolvedConfig,
 	TempoLogger,
-} from "../types";
+} from "../types.ts";
 
 const logger = getLogger(["tempo", "check"]);
 

@@ -1,6 +1,6 @@
 import { inspect } from "node:util";
 import type { LogRecord, Sink } from "@logtape/logtape";
-import { c } from "../utils/theme";
+import { c } from "../utils/theme.ts";
 
 const LEVEL_WIDTH = 7;
 

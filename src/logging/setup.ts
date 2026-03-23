@@ -1,6 +1,6 @@
 import { getFileSink } from "@logtape/file";
 import { configure, type LogLevel, reset, type Sink } from "@logtape/logtape";
-import { getColoredStderrSink } from "./sink";
+import { getColoredStderrSink } from "./sink.ts";
 
 export interface LoggingOptions {
 	verbosity: number;

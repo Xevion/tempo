@@ -1,7 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { getLogger } from "@logtape/logtape";
-import { elapsed } from "./fmt";
+import { elapsed } from "./fmt.ts";
 
 const logger = getLogger(["tempo", "preflight"]);
 
