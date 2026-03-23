@@ -5,6 +5,11 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   checks: write
@@ -13,6 +18,7 @@ jobs:
   ci:
     name: Summary
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -37,9 +43,19 @@ jobs:
         run: bun test
         continue-on-error: true
 
-      - name: Publish Dry Run
-        id: publish
+      - name: Pack Dry Run
+        id: pack
         run: npm pack --dry-run
+        continue-on-error: true
+
+      - name: Publint
+        id: publint
+        run: bunx publint --strict
+        continue-on-error: true
+
+      - name: Are The Types Wrong
+        id: attw
+        run: bunx @arethetypeswrong/cli --pack .
         continue-on-error: true
 
       - name: Report check statuses
@@ -51,7 +67,9 @@ jobs:
               { name: 'Type Check', outcome: '${{ steps.typecheck.outcome }}' },
               { name: 'Lint', outcome: '${{ steps.lint.outcome }}' },
               { name: 'Tests', outcome: '${{ steps.test.outcome }}' },
-              { name: 'Publish Dry Run', outcome: '${{ steps.publish.outcome }}' },
+              { name: 'Pack Dry Run', outcome: '${{ steps.pack.outcome }}' },
+              { name: 'Publint', outcome: '${{ steps.publint.outcome }}' },
+              { name: 'Are The Types Wrong', outcome: '${{ steps.attw.outcome }}' },
             ];
             for (const check of checks) {
               await github.rest.checks.create({
@@ -67,7 +85,7 @@ jobs:
       - name: Fail if any check failed
         if: always()
         run: |
-          outcomes=("${{ steps.typecheck.outcome }}" "${{ steps.lint.outcome }}" "${{ steps.test.outcome }}" "${{ steps.publish.outcome }}")
+          outcomes=("${{ steps.typecheck.outcome }}" "${{ steps.lint.outcome }}" "${{ steps.test.outcome }}" "${{ steps.pack.outcome }}" "${{ steps.publint.outcome }}" "${{ steps.attw.outcome }}")
           for outcome in "${outcomes[@]}"; do
             if [ "$outcome" != "success" ]; then
               echo "One or more checks failed"
