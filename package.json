@@ -15,7 +15,7 @@
 	"scripts": {
 		"build": "bun build src/index.ts src/proc.ts src/fmt.ts src/preflight.ts src/targets.ts src/watch.ts src/octocov.ts --outdir dist --root src --target node --format esm --packages external --splitting --entry-naming '[dir]/[name].mjs' --chunk-naming '[name]-[hash].mjs' && bun build src/cli.ts --outfile dist/cli.mjs --target node --format esm --packages external --banner '#!/usr/bin/env node'",
 		"prepublishOnly": "bun run build",
-		"test:install": "TARBALL=$(npm pack --pack-destination /tmp) && npm install -g \"/tmp/$TARBALL\""
+		"test:install": "bun run build && TARBALL=$(npm pack --pack-destination /tmp) && npm install -g \"/tmp/$TARBALL\""
 	},
 	"exports": {
 		".": {

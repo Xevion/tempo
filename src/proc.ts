@@ -43,11 +43,68 @@ export class ProcessGroup {
 	private strategy: SignalStrategy;
 	private sigintHandler: (() => Promise<void>) | null = null;
 	private sigtermHandler: (() => Promise<void>) | null = null;
+	private onBeforeExitFn: (() => Promise<void>) | null = null;
 	public shuttingDown = false;
 
-	constructor(options?: { signal?: SignalStrategy }) {
+	private static cliSigintHandler: (() => void) | null = null;
+	private static cliSigtermHandler: (() => void) | null = null;
+	private static activeGroup: ProcessGroup | null = null;
+
+	/** Register CLI-level fallback signal handlers that can be suppressed when a ProcessGroup takes ownership. */
+	static registerCliSignalHandlers(
+		handler: (signal: NodeJS.Signals) => Promise<void>,
+	): () => void {
+		const sigint = () => {
+			handler("SIGINT");
+		};
+		const sigterm = () => {
+			handler("SIGTERM");
+		};
+		ProcessGroup.cliSigintHandler = sigint;
+		ProcessGroup.cliSigtermHandler = sigterm;
+		process.on("SIGINT", sigint);
+		process.on("SIGTERM", sigterm);
+		return () => {
+			if (ProcessGroup.cliSigintHandler) {
+				process.removeListener("SIGINT", ProcessGroup.cliSigintHandler);
+				ProcessGroup.cliSigintHandler = null;
+			}
+			if (ProcessGroup.cliSigtermHandler) {
+				process.removeListener("SIGTERM", ProcessGroup.cliSigtermHandler);
+				ProcessGroup.cliSigtermHandler = null;
+			}
+		};
+	}
+
+	constructor(options?: {
+		signal?: SignalStrategy;
+		onBeforeExit?: () => Promise<void>;
+	}) {
 		this.strategy = options?.signal ?? "natural";
+		this.onBeforeExitFn = options?.onBeforeExit ?? null;
+		this.suppressCliHandlers();
 		this.setupSignalHandlers();
+	}
+
+	private suppressCliHandlers(): void {
+		if (ProcessGroup.cliSigintHandler) {
+			process.removeListener("SIGINT", ProcessGroup.cliSigintHandler);
+		}
+		if (ProcessGroup.cliSigtermHandler) {
+			process.removeListener("SIGTERM", ProcessGroup.cliSigtermHandler);
+		}
+		ProcessGroup.activeGroup = this;
+	}
+
+	private restoreCliHandlers(): void {
+		if (ProcessGroup.activeGroup !== this) return;
+		ProcessGroup.activeGroup = null;
+		if (ProcessGroup.cliSigintHandler) {
+			process.on("SIGINT", ProcessGroup.cliSigintHandler);
+		}
+		if (ProcessGroup.cliSigtermHandler) {
+			process.on("SIGTERM", ProcessGroup.cliSigtermHandler);
+		}
 	}
 
 	private setupSignalHandlers(): void {
@@ -69,6 +126,7 @@ export class ProcessGroup {
 					break;
 				case "graceful":
 					await this.killAll();
+					await this.onBeforeExitFn?.();
 					process.exit(130);
 					break;
 				case "immediate":
@@ -94,6 +152,7 @@ export class ProcessGroup {
 			process.removeListener("SIGTERM", this.sigtermHandler);
 			this.sigtermHandler = null;
 		}
+		this.restoreCliHandlers();
 	}
 
 	spawn(
@@ -209,6 +268,24 @@ export class ProcessGroup {
 			spawnSync("stty", ["sane"], { stdio: ["inherit", "pipe", "pipe"] });
 		} catch {
 			// stty may not be available
+		}
+		// Drain any pending terminal query responses (e.g. device attributes, cursor position)
+		// that child processes requested before being killed — these arrive on stdin asynchronously
+		// and would otherwise appear as garbled text in the shell prompt.
+		ProcessGroup.drainStdin();
+	}
+
+	private static drainStdin(): void {
+		if (!process.stdin.isTTY) return;
+		try {
+			// Consume any pending terminal query responses (device attributes, cursor position)
+			// left in the input buffer by killed child processes. Uses a timed shell read
+			// to drain bytes at the kernel level, which Node.js streams can't reliably do.
+			spawnSync("bash", ["-c", "read -r -t 0.1 -s -n 1000 2>/dev/null; true"], {
+				stdio: ["inherit", "pipe", "pipe"],
+			});
+		} catch {
+			// best-effort
 		}
 	}
 }

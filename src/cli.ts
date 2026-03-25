@@ -3,6 +3,7 @@ import pkg from "../package.json";
 import { loadConfig } from "./config.ts";
 import { parseFlagsFromArgv } from "./flags.ts";
 import { setupLogging, teardownLogging } from "./logging/setup.ts";
+import { ProcessGroup } from "./proc.ts";
 import { runCheck } from "./runners/check.ts";
 import { runDev } from "./runners/dev.ts";
 import { runFmt } from "./runners/fmt.ts";
@@ -65,8 +66,9 @@ async function shutdown(code: number): Promise<void> {
 	process.exit(code);
 }
 
-process.on("SIGINT", () => shutdown(130));
-process.on("SIGTERM", () => shutdown(143));
+ProcessGroup.registerCliSignalHandlers(async (signal) => {
+	await shutdown(signal === "SIGINT" ? 130 : 143);
+});
 
 const checkCommand = command(
 	{
