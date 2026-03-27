@@ -101,6 +101,7 @@ export async function runDev(
 
 				group.onCleanup(() => watcher.killSync());
 				group.onAsyncCleanup(() => watcher.shutdown());
+				group.waitOn(watcher.done);
 				watcher.start();
 			}
 		}

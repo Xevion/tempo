@@ -27,6 +27,10 @@ export class BackendWatcher {
 	private watchers: FSWatcher[] = [];
 	private dirty = false;
 	private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+	private resolveDone!: (code: number) => void;
+
+	/** Resolves when the watcher shuts down (signal, fatal error, or explicit shutdown). */
+	readonly done: Promise<number>;
 
 	private watchDirs: string[];
 	private watchExts: Set<string>;
@@ -56,6 +60,9 @@ export class BackendWatcher {
 			passthrough?: string[];
 		},
 	) {
+		this.done = new Promise((resolve) => {
+			this.resolveDone = resolve;
+		});
 		this.watchDirs = options.watchDirs;
 		this.watchExts = new Set(options.watchExts);
 		this.extraPaths = options.extraPaths ?? [];
@@ -236,6 +243,7 @@ export class BackendWatcher {
 		} catch {
 			// already dead
 		}
+		this.resolveDone(0);
 	}
 
 	async shutdown(): Promise<void> {
@@ -259,5 +267,6 @@ export class BackendWatcher {
 			await onExit(this.server);
 			clearTimeout(timeout);
 		}
+		this.resolveDone(0);
 	}
 }

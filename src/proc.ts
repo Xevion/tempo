@@ -38,6 +38,7 @@ export function resolveCmd(cmd: string | string[]): string[] {
 export class ProcessGroup {
 	private children: Set<ChildProcess> = new Set();
 	private exitPromises: Map<ChildProcess, Promise<number>> = new Map();
+	private externalPromises: Promise<number>[] = [];
 	private cleanupFns: (() => void)[] = [];
 	private asyncCleanupFns: (() => Promise<void>)[] = [];
 	private strategy: SignalStrategy;
@@ -192,16 +193,23 @@ export class ProcessGroup {
 		this.asyncCleanupFns.push(fn);
 	}
 
+	/** Register an external lifetime promise (e.g. from BackendWatcher) so waitForFirst/waitForAll include it. */
+	waitOn(promise: Promise<number>): void {
+		this.externalPromises.push(promise);
+	}
+
 	async waitForFirst(): Promise<number> {
-		if (this.children.size === 0) return 0;
-		const exitCode = await Promise.race([...this.exitPromises.values()]);
+		const all = [...this.exitPromises.values(), ...this.externalPromises];
+		if (all.length === 0) return 0;
+		const exitCode = await Promise.race(all);
 		await this.killAll();
 		return exitCode;
 	}
 
 	async waitForAll(): Promise<number> {
-		if (this.children.size === 0) return 0;
-		const codes = await Promise.all([...this.exitPromises.values()]);
+		const all = [...this.exitPromises.values(), ...this.externalPromises];
+		if (all.length === 0) return 0;
+		const codes = await Promise.all(all);
 		return Math.max(...codes);
 	}
 
