@@ -12,7 +12,7 @@ function onExit(child: ChildProcess): Promise<number> {
 }
 
 /** Collect all data from a readable stream into a string */
-function streamToString(stream: NodeJS.ReadableStream | null): Promise<string> {
+export function streamToString(stream: NodeJS.ReadableStream | null): Promise<string> {
 	if (!stream) return Promise.resolve("");
 	const chunks: Buffer[] = [];
 	return new Promise((resolve) => {

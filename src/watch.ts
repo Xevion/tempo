@@ -3,7 +3,7 @@ import { type FSWatcher, watch } from "node:fs";
 import { join } from "node:path";
 import { getLogger } from "@logtape/logtape";
 import { elapsed } from "./fmt.ts";
-import { type ProcessGroup, resolveCmd } from "./proc.ts";
+import { type ProcessGroup, resolveCmd, streamToString } from "./proc.ts";
 
 function onExit(child: ChildProcess): Promise<number> {
 	return new Promise((resolve) => {
@@ -165,11 +165,28 @@ export class BackendWatcher {
 			],
 		});
 
+		const stdoutPromise = this.verboseBuild
+			? Promise.resolve("")
+			: streamToString(this.buildProc.stdout);
+		const stderrPromise = this.verboseBuild
+			? Promise.resolve("")
+			: streamToString(this.buildProc.stderr);
+
 		const exitCode = await onExit(this.buildProc);
 		this.buildProc = null;
 
 		if (exitCode !== 0) {
 			logger.error("build failed ({elapsed}s)", { elapsed: elapsed(start) });
+			if (!this.verboseBuild) {
+				const [stdout, stderr] = await Promise.all([
+					stdoutPromise,
+					stderrPromise,
+				]);
+				const output = (stderr || stdout).trimEnd();
+				if (output) {
+					process.stderr.write(`${output}\n`);
+				}
+			}
 			if (this.state === "building_with_server") {
 				this.state = "running";
 				logger.warn("keeping previous server running");
