@@ -19,13 +19,13 @@ export async function runLint(
 	}
 
 	for (const subsystem of targetResult.subsystems) {
-		const sub = config.subsystems[subsystem];
+		const sub = config.subsystems[subsystem]!;
 		if (!sub.commands) continue;
 
 		const lintDef: CommandDef | undefined = sub.commands.lint;
 		if (!lintDef) continue;
 
-		const requires = collectRequires(sub.requires, lintDef);
+		const requires = collectRequires(sub.requires, lintDef!);
 		if (requires.length > 0) {
 			const missing = getMissingTools(requires);
 			if (missing.length > 0) {
@@ -41,15 +41,15 @@ export async function runLint(
 		let cwd: string;
 
 		if (typeof lintDef === "string") {
-			cmd = resolveCmd(lintDef);
+			cmd = resolveCmd(lintDef!);
 			cwd = sub.cwd ? resolve(config.rootDir, sub.cwd) : config.rootDir;
 		} else if (Array.isArray(lintDef)) {
-			cmd = lintDef;
+			cmd = lintDef!;
 			cwd = sub.cwd ? resolve(config.rootDir, sub.cwd) : config.rootDir;
 		} else {
-			cmd = resolveCmd(lintDef.cmd);
-			cwd = lintDef.cwd
-				? resolve(config.rootDir, lintDef.cwd)
+			cmd = resolveCmd(lintDef!.cmd);
+			cwd = lintDef!.cwd
+				? resolve(config.rootDir, lintDef!.cwd)
 				: sub.cwd
 					? resolve(config.rootDir, sub.cwd)
 					: config.rootDir;

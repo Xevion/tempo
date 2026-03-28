@@ -1,0 +1,5 @@
+[files]
+extend-exclude = ["*.lock", "*.lockb", "node_modules/", "dist/", "fixtures/"]
+
+[default.extend-words]
+# Add false positives here as needed

@@ -13,9 +13,24 @@ export default defineConfig({
 			commands: {
 				"format-check": "bunx biome check .",
 				"format-apply": "bunx biome check --write .",
+				"lint-check": "bunx biome lint .",
+				"lint-apply": "bunx biome lint --write .",
 			},
 			autoFix: {
 				"format-check": "format-apply",
+				"lint-check": "lint-apply",
+			},
+		},
+		knip: {
+			aliases: ["deadcode"],
+			commands: {
+				check: "bunx knip",
+			},
+		},
+		typos: {
+			aliases: ["spelling"],
+			commands: {
+				check: { cmd: "typos", requires: ["typos"] },
 			},
 		},
 		test: {

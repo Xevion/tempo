@@ -19,7 +19,7 @@ export async function runFmt(
 	}
 
 	for (const subsystem of targetResult.subsystems) {
-		const sub = config.subsystems[subsystem];
+		const sub = config.subsystems[subsystem]!;
 		if (!sub.commands) continue;
 
 		// Look for format-apply command, or fall back to autoFix values
@@ -35,7 +35,7 @@ export async function runFmt(
 
 		if (!fmtDef) continue;
 
-		const requires = collectRequires(sub.requires, fmtDef);
+		const requires = collectRequires(sub.requires, fmtDef!);
 		if (requires.length > 0) {
 			const missing = getMissingTools(requires);
 			if (missing.length > 0) {
@@ -51,15 +51,15 @@ export async function runFmt(
 		let cwd: string;
 
 		if (typeof fmtDef === "string") {
-			cmd = resolveCmd(fmtDef);
+			cmd = resolveCmd(fmtDef!);
 			cwd = sub.cwd ? resolve(config.rootDir, sub.cwd) : config.rootDir;
 		} else if (Array.isArray(fmtDef)) {
-			cmd = fmtDef;
+			cmd = fmtDef!;
 			cwd = sub.cwd ? resolve(config.rootDir, sub.cwd) : config.rootDir;
 		} else {
-			cmd = resolveCmd(fmtDef.cmd);
-			cwd = fmtDef.cwd
-				? resolve(config.rootDir, fmtDef.cwd)
+			cmd = resolveCmd(fmtDef!.cmd);
+			cwd = fmtDef!.cwd
+				? resolve(config.rootDir, fmtDef!.cwd)
 				: sub.cwd
 					? resolve(config.rootDir, sub.cwd)
 					: config.rootDir;

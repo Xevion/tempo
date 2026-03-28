@@ -64,7 +64,7 @@ export async function runDev(
 			const procDef = processes[subsystem as keyof typeof processes];
 			if (!procDef) continue;
 
-			const sub = config.subsystems[subsystem];
+			const sub = config.subsystems[subsystem]!;
 			const baseCwd = sub.cwd
 				? resolve(config.rootDir, sub.cwd)
 				: config.rootDir;

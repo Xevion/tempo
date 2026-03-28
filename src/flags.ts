@@ -17,8 +17,8 @@ export function parseFlagsFromArgv(
 			break;
 		}
 
-		if (arg.startsWith("--") || (arg.startsWith("-") && arg.length === 2)) {
-			const flagName = arg.replace(/^-+/, "");
+		if (arg!.startsWith("--") || (arg!.startsWith("-") && arg!.length === 2)) {
+			const flagName = arg!.replace(/^-+/, "");
 
 			let matchedName: string | undefined;
 			let matchedDef: CommandFlagDef | undefined;
@@ -41,7 +41,7 @@ export function parseFlagsFromArgv(
 				}
 			}
 		} else {
-			positional.push(arg);
+			positional.push(arg!);
 		}
 		i++;
 	}

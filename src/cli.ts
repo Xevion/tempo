@@ -47,14 +47,14 @@ function extractGlobalFlags(): {
 			i++;
 			continue;
 		}
-		cleaned.push(arg);
+		cleaned.push(arg!);
 	}
 
 	return { verbosity, quiet, logFile, cleaned };
 }
 
 const globalFlags = extractGlobalFlags();
-process.argv = [process.argv[0], process.argv[1], ...globalFlags.cleaned];
+process.argv = [process.argv[0]!, process.argv[1]!, ...globalFlags.cleaned];
 await setupLogging({
 	verbosity: globalFlags.verbosity,
 	quiet: globalFlags.quiet,
@@ -139,7 +139,7 @@ const devCommand = command(
 						i++;
 						continue;
 					}
-					filtered.push(rawDevArgs[i]);
+					filtered.push(rawDevArgs[i]!);
 				}
 				const parsed = parseFlagsFromArgv(flagSpec, filtered);
 				devFlags = parsed.flags;

@@ -155,7 +155,7 @@ export class BackendWatcher {
 		const start = Date.now();
 		logger.info("building {cmd}", { cmd: this.buildCmd.join(" ") });
 
-		this.buildProc = spawn(this.buildCmd[0], this.buildCmd.slice(1), {
+		this.buildProc = spawn(this.buildCmd[0]!, this.buildCmd.slice(1), {
 			cwd: this.cwd,
 			env: { ...process.env, ...this.env },
 			stdio: [
@@ -167,12 +167,12 @@ export class BackendWatcher {
 
 		const stdoutPromise = this.verboseBuild
 			? Promise.resolve("")
-			: streamToString(this.buildProc.stdout);
+			: streamToString(this.buildProc!.stdout);
 		const stderrPromise = this.verboseBuild
 			? Promise.resolve("")
-			: streamToString(this.buildProc.stderr);
+			: streamToString(this.buildProc!.stderr);
 
-		const exitCode = await onExit(this.buildProc);
+		const exitCode = await onExit(this.buildProc!);
 		this.buildProc = null;
 
 		if (exitCode !== 0) {
@@ -237,13 +237,13 @@ export class BackendWatcher {
 
 	private async startServer(): Promise<void> {
 		const fullCmd = [...this.runCmd, ...this.passthrough];
-		this.server = spawn(fullCmd[0], fullCmd.slice(1), {
+		this.server = spawn(fullCmd[0]!, fullCmd.slice(1), {
 			cwd: this.cwd,
 			env: { ...process.env, ...this.env },
 			stdio: "inherit",
 		});
 		this.state = "running";
-		logger.info("server started pid {pid}", { pid: this.server.pid });
+		logger.info("server started pid {pid}", { pid: this.server!.pid });
 	}
 
 	killSync(): void {

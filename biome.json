@@ -6,7 +6,14 @@
 		"useIgnoreFile": true
 	},
 	"files": {
-		"ignoreUnknown": false
+		"ignoreUnknown": false,
+		"includes": [
+			"src/**",
+			"tests/**",
+			"tempo.config.ts",
+			"biome.json",
+			"tsconfig.json"
+		]
 	},
 	"formatter": {
 		"enabled": true,
@@ -15,7 +22,26 @@
 	"linter": {
 		"enabled": true,
 		"rules": {
-			"recommended": true
+			"recommended": true,
+			"suspicious": {
+				"noConsole": {
+					"level": "warn",
+					"options": {
+						"allow": ["assert", "error", "warn"]
+					}
+				}
+			},
+			"complexity": {
+				"noExcessiveCognitiveComplexity": {
+					"level": "warn",
+					"options": {
+						"maxAllowedComplexity": 15
+					}
+				}
+			},
+			"style": {
+				"noEnum": "error"
+			}
 		}
 	},
 	"javascript": {

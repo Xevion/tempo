@@ -74,6 +74,7 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.8",
-		"@types/bun": "^1.2.0"
+		"@types/bun": "^1.2.0",
+		"knip": "^6.1.0"
 	}
 }

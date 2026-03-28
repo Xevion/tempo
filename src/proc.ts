@@ -12,7 +12,9 @@ function onExit(child: ChildProcess): Promise<number> {
 }
 
 /** Collect all data from a readable stream into a string */
-export function streamToString(stream: NodeJS.ReadableStream | null): Promise<string> {
+export function streamToString(
+	stream: NodeJS.ReadableStream | null,
+): Promise<string> {
 	if (!stream) return Promise.resolve("");
 	const chunks: Buffer[] = [];
 	return new Promise((resolve) => {
@@ -166,7 +168,7 @@ export class ProcessGroup {
 		},
 	): ChildProcess {
 		const args = resolveCmd(cmd);
-		const proc = spawn(args[0], args.slice(1), {
+		const proc = spawn(args[0]!, args.slice(1), {
 			cwd: options?.cwd,
 			env: { ...process.env, ...options?.env },
 			stdio: [
@@ -304,7 +306,7 @@ export function run(
 	options?: { cwd?: string; env?: Record<string, string> },
 ): void {
 	const args = resolveCmd(cmd);
-	const result = spawnSync(args[0], args.slice(1), {
+	const result = spawnSync(args[0]!, args.slice(1), {
 		cwd: options?.cwd,
 		env: { ...process.env, ...options?.env },
 		stdio: "inherit",
@@ -320,7 +322,7 @@ export function runPiped(
 	options?: { cwd?: string; env?: Record<string, string> },
 ): { stdout: string; stderr: string; exitCode: number } {
 	const args = resolveCmd(cmd);
-	const result = spawnSync(args[0], args.slice(1), {
+	const result = spawnSync(args[0]!, args.slice(1), {
 		cwd: options?.cwd,
 		env: { ...process.env, ...options?.env },
 		stdio: ["ignore", "pipe", "pipe"],
@@ -344,11 +346,11 @@ export async function spawnCollect(
 	},
 ): Promise<CollectResult> {
 	const args = resolveCmd(cmd);
-	const proc = spawn(args[0], args.slice(1), {
+	const proc = spawn(args[0]!, args.slice(1), {
 		cwd: options?.cwd,
 		env: { ...process.env, ...options?.env },
 		stdio: ["ignore", "pipe", "pipe"],
-	});
+	}) as ChildProcess;
 
 	let timedOut = false;
 	let killTimer: ReturnType<typeof setTimeout> | undefined;
@@ -373,8 +375,8 @@ export async function spawnCollect(
 
 	const [exitCode, stdout, stderrRaw] = await Promise.all([
 		onExit(proc),
-		streamToString(proc.stdout),
-		streamToString(proc.stderr),
+		streamToString(proc.stdout!),
+		streamToString(proc.stderr!),
 	]);
 	if (killTimer) clearTimeout(killTimer);
 
@@ -401,7 +403,7 @@ export async function raceInOrder<T extends { name: string; stderr: string }>(
 ): Promise<void> {
 	const remaining = new Map<Promise<T>, T>();
 	for (let i = 0; i < promises.length; i++) {
-		remaining.set(promises[i], fallbacks[i]);
+		remaining.set(promises[i]!, fallbacks[i]!);
 	}
 
 	while (remaining.size > 0) {
