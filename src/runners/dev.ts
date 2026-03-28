@@ -8,6 +8,7 @@ import { BackendWatcher } from "../watch.ts";
 
 const logger = getLogger(["tempo", "dev"]);
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: dev runner with hooks, process spawning, and exit handling
 export async function runDev(
 	config: ResolvedConfig,
 	args: string[],
@@ -43,8 +44,8 @@ export async function runDev(
 			const procDef = processes[subsystem as keyof typeof processes];
 			if (!procDef) continue;
 
-			const sub = config.subsystems[subsystem]!;
-			const baseCwd = sub.cwd
+			const sub = config.subsystems[subsystem];
+			const baseCwd = sub?.cwd
 				? resolve(config.rootDir, sub.cwd)
 				: config.rootDir;
 

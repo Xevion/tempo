@@ -1,14 +1,11 @@
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { resolve } from "node:path";
-import { getLogger } from "@logtape/logtape";
 import type {
 	CollectResult,
 	CommandDef,
 	CommandObject,
 	SignalStrategy,
 } from "./types.ts";
-
-const logger = getLogger(["tempo", "proc"]);
 
 /** Promise that resolves with exit code when a ChildProcess exits */
 export function onExit(child: ChildProcess): Promise<number> {
@@ -174,7 +171,7 @@ export class ProcessGroup {
 		},
 	): ChildProcess {
 		const args = resolveCmd(cmd);
-		const proc = spawn(args[0]!, args.slice(1), {
+		const proc = spawn(args[0] as string, args.slice(1), {
 			cwd: options?.cwd,
 			env: { ...process.env, ...options?.env },
 			stdio: [
@@ -312,7 +309,7 @@ export function run(
 	options?: { cwd?: string; env?: Record<string, string> },
 ): void {
 	const args = resolveCmd(cmd);
-	const result = spawnSync(args[0]!, args.slice(1), {
+	const result = spawnSync(args[0] as string, args.slice(1), {
 		cwd: options?.cwd,
 		env: { ...process.env, ...options?.env },
 		stdio: "inherit",
@@ -328,7 +325,7 @@ export function runPiped(
 	options?: { cwd?: string; env?: Record<string, string> },
 ): { stdout: string; stderr: string; exitCode: number } {
 	const args = resolveCmd(cmd);
-	const result = spawnSync(args[0]!, args.slice(1), {
+	const result = spawnSync(args[0] as string, args.slice(1), {
 		cwd: options?.cwd,
 		env: { ...process.env, ...options?.env },
 		stdio: ["ignore", "pipe", "pipe"],
@@ -352,7 +349,7 @@ export async function spawnCollect(
 	},
 ): Promise<CollectResult> {
 	const args = resolveCmd(cmd);
-	const proc = spawn(args[0]!, args.slice(1), {
+	const proc = spawn(args[0] as string, args.slice(1), {
 		cwd: options?.cwd,
 		env: { ...process.env, ...options?.env },
 		stdio: ["ignore", "pipe", "pipe"],
@@ -381,8 +378,8 @@ export async function spawnCollect(
 
 	const [exitCode, stdout, stderrRaw] = await Promise.all([
 		onExit(proc),
-		streamToString(proc.stdout!),
-		streamToString(proc.stderr!),
+		streamToString(proc.stdout),
+		streamToString(proc.stderr),
 	]);
 	if (killTimer) clearTimeout(killTimer);
 
@@ -409,7 +406,7 @@ export async function raceInOrder<T extends { name: string; stderr: string }>(
 ): Promise<void> {
 	const remaining = new Map<Promise<T>, T>();
 	for (let i = 0; i < promises.length; i++) {
-		remaining.set(promises[i]!, fallbacks[i]!);
+		remaining.set(promises[i] as Promise<T>, fallbacks[i] as T);
 	}
 
 	while (remaining.size > 0) {
@@ -461,7 +458,11 @@ export function collectRequires(
 ): string[] {
 	const cmdRequires =
 		typeof def === "object" && !Array.isArray(def) ? def.requires : undefined;
-	if (!subsystemRequires?.length && !cmdRequires?.length) return [];
+	if (
+		(subsystemRequires?.length ?? 0) === 0 &&
+		(cmdRequires?.length ?? 0) === 0
+	)
+		return [];
 	return [...new Set([...(subsystemRequires ?? []), ...(cmdRequires ?? [])])];
 }
 

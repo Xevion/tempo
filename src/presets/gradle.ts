@@ -14,7 +14,7 @@ export function gradle(options?: GradlePresetOptions): SubsystemConfig {
 	const flags: string[] = [];
 	if (quiet) flags.push("--quiet");
 	if (configCache) flags.push("--configuration-cache");
-	const suffix = flags.length ? ` ${flags.join(" ")}` : "";
+	const suffix = flags.length > 0 ? ` ${flags.join(" ")}` : "";
 
 	const compileTargets =
 		options?.subprojects

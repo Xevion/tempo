@@ -12,6 +12,7 @@ import type { CommandDef, ResolvedConfig } from "../types.ts";
 
 const logger = getLogger(["tempo", "pre-commit"]);
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-commit flow with partial staging detection
 export async function runPreCommit(config: ResolvedConfig): Promise<number> {
 	// Get staged files
 	const staged = runPiped("git diff --cached --name-only --diff-filter=ACMR");
@@ -41,8 +42,8 @@ export async function runPreCommit(config: ResolvedConfig): Promise<number> {
 
 	for (const file of stagedFiles) {
 		for (const subsystem of subsystemNames) {
-			const sub = config.subsystems[subsystem]!;
-			if (sub.cwd) {
+			const sub = config.subsystems[subsystem];
+			if (sub?.cwd) {
 				if (file.startsWith(`${sub.cwd}/`) || file.startsWith(`${sub.cwd}\\`)) {
 					const existing = affectedSubsystems.get(subsystem) ?? [];
 					existing.push(file);
@@ -60,8 +61,8 @@ export async function runPreCommit(config: ResolvedConfig): Promise<number> {
 	let hasFailure = false;
 
 	for (const [subsystem, files] of affectedSubsystems) {
-		const sub = config.subsystems[subsystem]!;
-		if (!sub.commands) continue;
+		const sub = config.subsystems[subsystem];
+		if (!sub?.commands) continue;
 
 		const checkDef: CommandDef | undefined = sub.commands["format-check"];
 		if (!checkDef) continue;
@@ -81,8 +82,8 @@ export async function runPreCommit(config: ResolvedConfig): Promise<number> {
 		}
 
 		// Format check failed — try to auto-fix
-		const fixAction = sub!.autoFix?.["format-check"];
-		if (!fixAction || !sub!.commands![fixAction]) {
+		const fixAction = sub.autoFix?.["format-check"];
+		if (!fixAction || !sub.commands[fixAction]) {
 			process.stdout.write(
 				`${c.catRed("✗")} ${c.overlay0(subsystem)} format check failed (no auto-fix available)\n`,
 			);
@@ -90,7 +91,7 @@ export async function runPreCommit(config: ResolvedConfig): Promise<number> {
 			continue;
 		}
 
-		const fixDef = sub.commands[fixAction]!;
+		const fixDef = sub.commands[fixAction] as CommandDef;
 		const { cmd: fixCmd } = resolveCommandDef(fixDef);
 
 		// Check for partial staging conflicts

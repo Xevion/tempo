@@ -41,7 +41,8 @@ export function resolveTargets<T extends string>(
 			const validTargets = subsystemNames
 				.map((name) => {
 					const aliases = subsystems[name].aliases;
-					const aliasList = aliases?.length ? ` (${aliases.join(", ")})` : "";
+					const aliasList =
+						aliases && aliases.length > 0 ? ` (${aliases.join(", ")})` : "";
 					return `  ${name}${aliasList}`;
 				})
 				.join("\n");

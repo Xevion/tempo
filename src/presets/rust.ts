@@ -15,11 +15,11 @@ export function rust(options?: RustPresetOptions): SubsystemConfig {
 	}
 	if (options?.allFeatures) {
 		cargoFlags.push("--all-features");
-	} else if (options?.features?.length) {
+	} else if (options?.features && options.features.length > 0) {
 		cargoFlags.push("--features", options.features.join(","));
 	}
 
-	const extra = cargoFlags.length ? ` ${cargoFlags.join(" ")}` : "";
+	const extra = cargoFlags.length > 0 ? ` ${cargoFlags.join(" ")}` : "";
 
 	let testCmd = `cargo nextest run${extra}`;
 	if (options?.testFilter) {

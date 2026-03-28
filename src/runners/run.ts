@@ -15,6 +15,7 @@ import type {
 
 const logger = getLogger(["tempo", "run"]);
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: command dispatch with multiple entry types
 export async function runCustom(
 	config: ResolvedConfig,
 	name: string,

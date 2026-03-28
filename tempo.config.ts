@@ -11,10 +11,10 @@ export default defineConfig({
 		biome: {
 			aliases: ["lint", "web"],
 			commands: {
-				"format-check": "bunx biome check .",
-				"format-apply": "bunx biome check --write .",
-				"lint-check": "bunx biome lint .",
-				"lint-apply": "bunx biome lint --write .",
+				"format-check": "bunx biome check --error-on-warnings .",
+				"format-apply": "bunx biome check --write --error-on-warnings .",
+				"lint-check": "bunx biome lint --error-on-warnings .",
+				"lint-apply": "bunx biome lint --write --error-on-warnings .",
 			},
 			autoFix: {
 				"format-check": "format-apply",

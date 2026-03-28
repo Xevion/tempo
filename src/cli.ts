@@ -25,10 +25,10 @@ function extractGlobalFlags(): {
 	const cleaned: string[] = [];
 
 	for (let i = 0; i < args.length; i++) {
-		const arg = args[i]!;
+		const arg = args[i] as string;
 		const vMatch = /^-(v{1,3})$/.exec(arg);
 		if (vMatch) {
-			verbosity += vMatch[1]!.length;
+			verbosity += (vMatch[1] as string).length;
 		} else if (arg === "-q" || arg === "--quiet") {
 			quiet = true;
 		} else if (arg === "--log-file" && args[i + 1]) {
@@ -44,7 +44,11 @@ function extractGlobalFlags(): {
 }
 
 const globalFlags = extractGlobalFlags();
-process.argv = [process.argv[0]!, process.argv[1]!, ...globalFlags.cleaned];
+process.argv = [
+	process.argv[0] as string,
+	process.argv[1] as string,
+	...globalFlags.cleaned,
+];
 await setupLogging({
 	verbosity: globalFlags.verbosity,
 	quiet: globalFlags.quiet,
@@ -99,6 +103,7 @@ const devCommand = command(
 		},
 		help: { description: "Multi-process dev server manager" },
 	},
+	// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: dev command has many flag-parsing branches
 	async (argv) => {
 		const config = await loadConfig({ configPath: argv.flags.config });
 		const passthrough = argv._.passthrough ?? [];
@@ -116,7 +121,7 @@ const devCommand = command(
 						i++;
 						continue;
 					}
-					filtered.push(rawDevArgs[i]!);
+					filtered.push(rawDevArgs[i] as string);
 				}
 				const parsed = parseFlagsFromArgv(flagSpec, filtered);
 				devFlags = parsed.flags;

@@ -47,7 +47,9 @@ function spawnChecks(
 
 	for (const check of checks) {
 		const { cmd, opts } = resolveCommandDef(check.def);
-		const sub = config.subsystems[check.subsystem]!;
+		const sub = config.subsystems[
+			check.subsystem
+		] as (typeof config.subsystems)[string];
 		const checkOpts =
 			config.check?.options?.[check.name as `${string}:${string}`];
 
@@ -85,6 +87,7 @@ function isFailure(
 }
 
 /** Render a single check result to stdout/stderr */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: rendering logic with many output branches
 function renderResult(
 	result: CollectResult,
 	check: CheckEntry,
@@ -129,6 +132,7 @@ function renderResult(
 	}
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: orchestrator with hooks, preflights, and auto-fix
 export async function runCheck(
 	config: ResolvedConfig,
 	args: string[],
@@ -137,7 +141,9 @@ export async function runCheck(
 	const targetResult = resolveAndLogTargets(args, config.subsystems, logger);
 
 	for (const name of Object.keys(config.subsystems)) {
-		if (config.subsystems[name]!.alwaysRun) {
+		if (
+			(config.subsystems[name] as (typeof config.subsystems)[string]).alwaysRun
+		) {
 			targetResult.subsystems.add(name);
 		}
 	}
@@ -185,8 +191,8 @@ export async function runCheck(
 	const excluded = new Set(config.check?.exclude ?? []);
 
 	for (const subsystem of targetResult.subsystems) {
-		const sub = config.subsystems[subsystem]!;
-		if (!sub.commands) continue;
+		const sub = config.subsystems[subsystem];
+		if (!sub?.commands) continue;
 		for (const [action, def] of Object.entries(sub.commands)) {
 			const checkName = `${subsystem}:${action}`;
 			if (excluded.has(checkName as `${string}:${string}`)) continue;
@@ -236,8 +242,8 @@ export async function runCheck(
 	// Auto-fix: fix-first strategy
 	if (flags.fix && config.check?.autoFixStrategy !== "fix-on-fail") {
 		for (const subsystem of targetResult.subsystems) {
-			const sub = config.subsystems[subsystem]!;
-			if (!sub.autoFix || !sub.commands) continue;
+			const sub = config.subsystems[subsystem];
+			if (!sub?.autoFix || !sub.commands) continue;
 			for (const [_checkAction, fixAction] of Object.entries(sub.autoFix)) {
 				const fixDef = sub.commands[fixAction as string];
 				if (!fixDef) continue;
@@ -342,8 +348,8 @@ export async function runCheck(
 			const check = checks.find((ch) => ch.name === name);
 			if (!check) continue;
 
-			const sub = config.subsystems[check.subsystem]!;
-			if (!sub.autoFix || !sub.commands) continue;
+			const sub = config.subsystems[check.subsystem];
+			if (!sub?.autoFix || !sub.commands) continue;
 
 			const fixAction = sub.autoFix[check.action];
 			if (!fixAction) continue;

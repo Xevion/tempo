@@ -40,7 +40,12 @@
 				}
 			},
 			"style": {
-				"noEnum": "error"
+				"noEnum": "error",
+				"useExplicitLengthCheck": "warn",
+				"useConsistentCurlyBraces": "warn"
+			},
+			"correctness": {
+				"noUndeclaredDependencies": "error"
 			}
 		}
 	},

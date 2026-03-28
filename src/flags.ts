@@ -1,6 +1,7 @@
 import type { CommandFlagDef } from "./types.ts";
 
 /** Parse argv against a flag spec, returning typed flags and leftover positional args */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: argv parsing is inherently branchy
 export function parseFlagsFromArgv(
 	spec: Record<string, CommandFlagDef>,
 	args: string[],
@@ -10,15 +11,15 @@ export function parseFlagsFromArgv(
 	let i = 0;
 
 	while (i < args.length) {
-		const arg = args[i];
+		const arg = args[i] as string;
 		if (arg === "--") {
 			// Everything after -- is positional
 			positional.push(...args.slice(i + 1));
 			break;
 		}
 
-		if (arg!.startsWith("--") || (arg!.startsWith("-") && arg!.length === 2)) {
-			const flagName = arg!.replace(/^-+/, "");
+		if (arg.startsWith("--") || (arg.startsWith("-") && arg.length === 2)) {
+			const flagName = arg.replace(/^-+/, "");
 
 			let matchedName: string | undefined;
 			let matchedDef: CommandFlagDef | undefined;
@@ -41,7 +42,7 @@ export function parseFlagsFromArgv(
 				}
 			}
 		} else {
-			positional.push(arg!);
+			positional.push(arg);
 		}
 		i++;
 	}
