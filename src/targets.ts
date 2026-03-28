@@ -1,3 +1,4 @@
+import type { Logger } from "@logtape/logtape";
 import type { SubsystemConfig, TargetResult } from "./types.ts";
 
 /** Resolve CLI target strings to subsystem names via alias lookup */
@@ -64,6 +65,20 @@ export function isAll<T extends string>(
 	allSubsystems: T[],
 ): boolean {
 	return result.subsystems.size === allSubsystems.length;
+}
+
+/** Resolve targets from args and log when scoped */
+export function resolveAndLogTargets<T extends string>(
+	args: string[],
+	subsystems: Record<T, SubsystemConfig>,
+	log: Logger,
+): TargetResult<T> {
+	const subsystemNames = Object.keys(subsystems) as T[];
+	const result = resolveTargets(args, subsystems);
+	if (!isAll(result, subsystemNames)) {
+		log.info("scope: {label}", { label: targetLabel(result) });
+	}
+	return result;
 }
 
 /** Format a human-readable label for the active targets */

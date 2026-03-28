@@ -1,11 +1,17 @@
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import { resolve } from "node:path";
 import { getLogger } from "@logtape/logtape";
-import type { CollectResult, SignalStrategy } from "./types.ts";
+import type {
+	CollectResult,
+	CommandDef,
+	CommandObject,
+	SignalStrategy,
+} from "./types.ts";
 
 const logger = getLogger(["tempo", "proc"]);
 
 /** Promise that resolves with exit code when a ChildProcess exits */
-function onExit(child: ChildProcess): Promise<number> {
+export function onExit(child: ChildProcess): Promise<number> {
 	return new Promise((resolve) => {
 		child.on("exit", (code) => resolve(code ?? 1));
 	});
@@ -464,29 +470,35 @@ export function getMissingTools(requires: string[]): string[] {
 	return requires.filter((tool) => !hasTool(tool));
 }
 
-export function warnMissingTool(cmd: string, consequence: string): void {
-	if (!hasTool(cmd)) {
-		logger.warn("{cmd} not found: {consequence}", { cmd, consequence });
-	}
+/** Resolve a CommandDef to a spawnable cmd array and its options */
+export function resolveCommandDef(def: CommandDef): {
+	cmd: string[];
+	opts: Partial<CommandObject>;
+} {
+	if (typeof def === "string") return { cmd: resolveCmd(def), opts: {} };
+	if (Array.isArray(def)) return { cmd: def, opts: {} };
+	return { cmd: resolveCmd(def.cmd), opts: def };
 }
 
-export function hasDockerDaemon(): boolean {
-	try {
-		const result = spawnSync("docker", ["info"], {
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		return result.status === 0;
-	} catch {
-		return false;
-	}
+/** Resolve cwd from command-level, subsystem-level, or root fallback */
+export function resolveCwd(
+	rootDir: string,
+	cmdCwd?: string,
+	subsystemCwd?: string,
+): string {
+	if (cmdCwd) return resolve(rootDir, cmdCwd);
+	if (subsystemCwd) return resolve(rootDir, subsystemCwd);
+	return rootDir;
 }
 
-export function assertPlatform(...allowed: NodeJS.Platform[]): void {
-	if (!allowed.includes(process.platform)) {
-		logger.error("Unsupported platform: {platform}. Allowed: {allowed}", {
-			platform: process.platform,
-			allowed: allowed.join(", "),
-		});
-		process.exit(1);
+/** Append passthrough args, handling sh -c commands correctly */
+export function appendPassthrough(
+	cmd: string[],
+	passthrough: string[],
+): string[] {
+	if (passthrough.length === 0) return cmd;
+	if (cmd[0] === "sh" && cmd[1] === "-c") {
+		return ["sh", "-c", `${cmd[2]} ${passthrough.join(" ")}`];
 	}
+	return [...cmd, ...passthrough];
 }

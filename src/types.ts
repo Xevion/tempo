@@ -70,12 +70,7 @@ export interface CheckConfig<TSubsystems extends string = string> {
 	renderer?: (event: CheckRenderEvent) => void;
 }
 
-export interface DevFlag {
-	type: BooleanConstructor | StringConstructor | NumberConstructor;
-	alias?: string;
-	description?: string;
-	default?: boolean | string | number;
-}
+export type DevFlag = CommandFlagDef;
 
 export interface UnmanagedProcess {
 	type: "unmanaged";

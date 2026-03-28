@@ -3,13 +3,7 @@ import { type FSWatcher, watch } from "node:fs";
 import { join } from "node:path";
 import { getLogger } from "@logtape/logtape";
 import { elapsed } from "./fmt.ts";
-import { type ProcessGroup, resolveCmd, streamToString } from "./proc.ts";
-
-function onExit(child: ChildProcess): Promise<number> {
-	return new Promise((resolve) => {
-		child.on("exit", (code) => resolve(code ?? 1));
-	});
-}
+import { onExit, resolveCmd, streamToString } from "./proc.ts";
 
 const logger = getLogger(["tempo", "watch"]);
 
@@ -44,22 +38,19 @@ export class BackendWatcher {
 	private env?: Record<string, string>;
 	private passthrough: string[];
 
-	constructor(
-		_group: ProcessGroup,
-		options: {
-			watchDirs: string[];
-			watchExts: string[];
-			extraPaths?: string[];
-			buildCmd: string | string[];
-			runCmd: string | string[];
-			debounce?: number;
-			interrupt?: boolean;
-			verboseBuild?: boolean;
-			cwd?: string;
-			env?: Record<string, string>;
-			passthrough?: string[];
-		},
-	) {
+	constructor(options: {
+		watchDirs: string[];
+		watchExts: string[];
+		extraPaths?: string[];
+		buildCmd: string | string[];
+		runCmd: string | string[];
+		debounce?: number;
+		interrupt?: boolean;
+		verboseBuild?: boolean;
+		cwd?: string;
+		env?: Record<string, string>;
+		passthrough?: string[];
+	}) {
 		this.done = new Promise((resolve) => {
 			this.resolveDone = resolve;
 		});

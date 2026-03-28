@@ -1,44 +1,132 @@
 import { resolve } from "node:path";
 import { getLogger } from "@logtape/logtape";
 import { c, elapsed, isStderrTTY } from "../fmt.ts";
+import { buildHookContext } from "../hooks.ts";
 import { ensureFreshAsync, newestMtime } from "../preflight.ts";
 import {
 	collectRequires,
 	getMissingTools,
 	raceInOrder,
-	resolveCmd,
+	resolveCommandDef,
+	resolveCwd,
 	run,
 	spawnCollect,
 	TempoAbortError,
 } from "../proc.ts";
-import { isAll, resolveTargets, targetLabel } from "../targets.ts";
+import { resolveAndLogTargets } from "../targets.ts";
 import type {
 	CheckInfo,
 	CollectResult,
 	CommandDef,
-	CommandObject,
 	DeclarativePreflight,
-	HookContext,
 	ResolvedConfig,
-	TempoLogger,
 } from "../types.ts";
 
 const logger = getLogger(["tempo", "check"]);
 
-function resolveCommandDef(def: CommandDef): {
-	cmd: string[];
-	opts: Partial<CommandObject>;
-} {
-	if (typeof def === "string") return { cmd: resolveCmd(def), opts: {} };
-	if (Array.isArray(def)) return { cmd: def, opts: {} };
-	return {
-		cmd: resolveCmd(def.cmd),
-		opts: def,
-	};
+interface CheckEntry {
+	name: string;
+	subsystem: string;
+	action: string;
+	def: CommandDef;
 }
 
 function isDeclarativePreflight(p: unknown): p is DeclarativePreflight {
 	return typeof p === "object" && p !== null && "label" in p;
+}
+
+/** Spawn all checks in parallel, returning promises and fallbacks for raceInOrder */
+function spawnChecks(
+	checks: CheckEntry[],
+	config: ResolvedConfig,
+	envOverrides: Record<string, string>,
+	startTime: number,
+): { promises: Promise<CollectResult>[]; fallbacks: CollectResult[] } {
+	const promises: Promise<CollectResult>[] = [];
+	const fallbacks: CollectResult[] = [];
+
+	for (const check of checks) {
+		const { cmd, opts } = resolveCommandDef(check.def);
+		const sub = config.subsystems[check.subsystem]!;
+		const checkOpts =
+			config.check?.options?.[check.name as `${string}:${string}`];
+
+		const env = { ...envOverrides, ...opts.env, ...checkOpts?.env };
+		const cwd = resolveCwd(config.rootDir, opts.cwd, sub.cwd);
+		const timeout = opts.timeout ?? checkOpts?.timeout;
+
+		promises.push(
+			spawnCollect(cmd, startTime, { cwd, env, name: check.name, timeout }),
+		);
+		fallbacks.push({
+			name: check.name,
+			stdout: "",
+			stderr: "check timed out or was interrupted",
+			exitCode: 1,
+			elapsed: "0.0",
+		});
+	}
+
+	return { promises, fallbacks };
+}
+
+/** Determine if a result is a failure, considering warnIfExitCode */
+function isFailure(
+	result: CollectResult,
+	check: CheckEntry,
+	config: ResolvedConfig,
+): boolean {
+	if (result.exitCode === 0) return false;
+	const checkOpts =
+		config.check?.options?.[result.name as `${string}:${string}`];
+	const { opts } = resolveCommandDef(check.def);
+	const warnCode = opts.warnIfExitCode ?? checkOpts?.warnIfExitCode;
+	return warnCode === undefined || result.exitCode !== warnCode;
+}
+
+/** Render a single check result to stdout/stderr */
+function renderResult(
+	result: CollectResult,
+	check: CheckEntry,
+	config: ResolvedConfig,
+): void {
+	const checkOpts =
+		config.check?.options?.[result.name as `${string}:${string}`];
+	const { opts } = resolveCommandDef(check.def);
+	const hint = opts.hint ?? checkOpts?.hint;
+	const warnCode = opts.warnIfExitCode ?? checkOpts?.warnIfExitCode;
+
+	if (isStderrTTY && !config.isCI) {
+		process.stderr.write("\r\x1b[K");
+	}
+
+	if (config.isCI && config.ci?.groupedOutput) {
+		process.stdout.write(`::group::${result.name}\n`);
+	}
+
+	if (result.exitCode === 0) {
+		process.stdout.write(
+			`${c.catGreen("✓")} ${result.name} ${c.overlay0(`(${result.elapsed}s)`)}\n`,
+		);
+	} else if (warnCode !== undefined && result.exitCode === warnCode) {
+		process.stdout.write(
+			`${c.catYellow("⚠")} ${result.name} ${c.overlay0(`(${result.elapsed}s)`)}\n`,
+		);
+	} else {
+		process.stdout.write(
+			`${c.catRed("✗")} ${result.name} ${c.overlay0(`(${result.elapsed}s)`)}\n`,
+		);
+		if (hint) {
+			process.stdout.write(`  ${c.overlay0("hint:")} ${hint}\n`);
+		} else {
+			if (result.stdout.trim()) process.stdout.write(result.stdout);
+			if (result.stderr.trim()) process.stderr.write(result.stderr);
+		}
+	}
+
+	if (config.isCI && config.ci?.groupedOutput) {
+		process.stdout.write("::endgroup::\n");
+	}
 }
 
 export async function runCheck(
@@ -46,30 +134,20 @@ export async function runCheck(
 	args: string[],
 	flags: { fix?: boolean },
 ): Promise<number> {
-	const subsystemNames = Object.keys(config.subsystems) as string[];
-	const targetResult = resolveTargets(args, config.subsystems);
+	const targetResult = resolveAndLogTargets(args, config.subsystems, logger);
 
-	for (const name of subsystemNames) {
+	for (const name of Object.keys(config.subsystems)) {
 		if (config.subsystems[name]!.alwaysRun) {
 			targetResult.subsystems.add(name);
 		}
 	}
 
-	const allTargeted = isAll(targetResult, subsystemNames);
-	if (!allTargeted) {
-		logger.info("scope: {label}", { label: targetLabel(targetResult) });
-	}
-
-	const hookLogTape = getLogger(["tempo", "hooks"]);
-	const tempoLogger: TempoLogger = {
-		info: (msg: string) => hookLogTape.info(msg),
-		warn: (msg: string) => hookLogTape.warn(msg),
-		error: (msg: string) => hookLogTape.error(msg),
-	};
-	const fail = (msg: string): never => {
-		hookLogTape.error(msg);
-		throw new TempoAbortError(msg);
-	};
+	const {
+		hookCtx: baseHookCtx,
+		cleanupFns,
+		hookEnv,
+	} = buildHookContext(config, flags, targetResult.subsystems as Set<string>);
+	const { logger: tempoLogger, fail } = baseHookCtx;
 
 	// Run preflights
 	for (const preflight of config.preflights ?? []) {
@@ -103,12 +181,7 @@ export async function runCheck(
 	}
 
 	// Build check list
-	const checks: {
-		name: string;
-		subsystem: string;
-		action: string;
-		def: CommandDef;
-	}[] = [];
+	const checks: CheckEntry[] = [];
 	const excluded = new Set(config.check?.exclude ?? []);
 
 	for (const subsystem of targetResult.subsystems) {
@@ -144,23 +217,10 @@ export async function runCheck(
 		return 0;
 	}
 
-	// Build hook context
-	const cleanupFns: (() => void | Promise<void>)[] = [];
-	const hookEnv: Record<string, string> = {};
-	const hookCtx: HookContext = {
-		config,
-		flags,
-		targets: targetResult.subsystems as Set<string>,
-		env: hookEnv,
-		logger: tempoLogger,
-		addCleanup: (fn) => cleanupFns.push(fn),
-		fail,
-	};
-
 	// Run before:check hook
 	if (config.hooks?.["before:check"]) {
 		try {
-			await config.hooks["before:check"](hookCtx);
+			await config.hooks["before:check"](baseHookCtx);
 		} catch (e) {
 			if (e instanceof TempoAbortError) return 1;
 			throw e;
@@ -187,7 +247,7 @@ export async function runCheck(
 				const { cmd } = resolveCommandDef(fixDef as CommandDef);
 				logger.info("fix {target}", { target: `${subsystem}:${fixAction}` });
 				run(cmd, {
-					cwd: sub.cwd ? resolve(config.rootDir, sub.cwd) : config.rootDir,
+					cwd: resolveCwd(config.rootDir, undefined, sub.cwd),
 					env: envOverrides,
 				});
 			}
@@ -196,55 +256,33 @@ export async function runCheck(
 
 	// Spawn all checks in parallel
 	const startTime = Date.now();
-	const promises: Promise<CollectResult>[] = [];
-	const fallbacks: CollectResult[] = [];
 
+	// Run before:check:each hooks
 	for (const check of checks) {
-		const { cmd, opts } = resolveCommandDef(check.def);
-		const sub = config.subsystems[check.subsystem]!;
-		const checkOpts =
-			config.check?.options?.[check.name as `${string}:${string}`];
-
-		const env = {
-			...envOverrides,
-			...opts.env,
-			...checkOpts?.env,
-		};
-		const cwd = opts.cwd
-			? resolve(config.rootDir, opts.cwd)
-			: sub.cwd
-				? resolve(config.rootDir, sub.cwd)
-				: config.rootDir;
-
-		// Run before:check:each hook
 		if (config.hooks?.["before:check:each"]) {
+			const { cmd } = resolveCommandDef(check.def);
 			const info: CheckInfo = {
 				name: check.name,
 				subsystem: check.subsystem,
 				action: check.action,
 				cmd,
 			};
-			await config.hooks["before:check:each"](hookCtx, info);
+			await config.hooks["before:check:each"](baseHookCtx, info);
 		}
-
-		const timeout = opts.timeout ?? checkOpts?.timeout;
-		promises.push(
-			spawnCollect(cmd, startTime, { cwd, env, name: check.name, timeout }),
-		);
-		fallbacks.push({
-			name: check.name,
-			stdout: "",
-			stderr: "check timed out or was interrupted",
-			exitCode: 1,
-			elapsed: "0.0",
-		});
 	}
+
+	const { promises, fallbacks } = spawnChecks(
+		checks,
+		config,
+		envOverrides,
+		startTime,
+	);
 
 	const renderer = config.check?.renderer;
 
 	// TUI spinner (only when no custom renderer)
 	let spinnerInterval: ReturnType<typeof setInterval> | undefined;
-	const remaining = new Set(checks.map((c) => c.name));
+	const remaining = new Set(checks.map((ch) => ch.name));
 
 	if (!renderer && isStderrTTY && !config.isCI) {
 		spinnerInterval = setInterval(() => {
@@ -266,56 +304,15 @@ export async function runCheck(
 
 		const check = checks.find((ch) => ch.name === result.name);
 		if (!check) return;
-		const checkOpts =
-			config.check?.options?.[result.name as `${string}:${string}`];
-		const { opts } = resolveCommandDef(check.def);
-		const hint = opts.hint ?? checkOpts?.hint;
-		const warnCode = opts.warnIfExitCode ?? checkOpts?.warnIfExitCode;
 
 		if (renderer) {
 			renderer({ type: "check-complete", name: result.name, result });
 		} else {
-			// Clear spinner line
-			if (isStderrTTY && !config.isCI) {
-				process.stderr.write("\r\x1b[K");
-			}
-
-			// CI grouped output
-			if (config.isCI && config.ci?.groupedOutput) {
-				process.stdout.write(`::group::${result.name}\n`);
-			}
-
-			if (result.exitCode === 0) {
-				process.stdout.write(
-					`${c.catGreen("✓")} ${result.name} ${c.overlay0(`(${result.elapsed}s)`)}\n`,
-				);
-			} else if (warnCode !== undefined && result.exitCode === warnCode) {
-				process.stdout.write(
-					`${c.catYellow("⚠")} ${result.name} ${c.overlay0(`(${result.elapsed}s)`)}\n`,
-				);
-			} else {
-				hasFailure = true;
-				process.stdout.write(
-					`${c.catRed("✗")} ${result.name} ${c.overlay0(`(${result.elapsed}s)`)}\n`,
-				);
-				if (hint) {
-					process.stdout.write(`  ${c.overlay0("hint:")} ${hint}\n`);
-				} else {
-					if (result.stdout.trim()) process.stdout.write(result.stdout);
-					if (result.stderr.trim()) process.stderr.write(result.stderr);
-				}
-			}
-
-			if (config.isCI && config.ci?.groupedOutput) {
-				process.stdout.write("::endgroup::\n");
-			}
+			renderResult(result, check, config);
 		}
 
-		// Determine failure for renderer path too
-		if (renderer && result.exitCode !== 0) {
-			if (warnCode === undefined || result.exitCode !== warnCode) {
-				hasFailure = true;
-			}
+		if (isFailure(result, check, config)) {
+			hasFailure = true;
 		}
 
 		// Run after:check:each hook (fire and forget for perf)
@@ -326,7 +323,7 @@ export async function runCheck(
 				action: check.action,
 				cmd: [],
 			};
-			config.hooks["after:check:each"](hookCtx, info, result);
+			config.hooks["after:check:each"](baseHookCtx, info, result);
 		}
 	});
 
@@ -338,7 +335,7 @@ export async function runCheck(
 		config.check?.autoFixStrategy === "fix-on-fail" &&
 		hasFailure
 	) {
-		const fixedChecks: typeof checks = [];
+		const fixedChecks: CheckEntry[] = [];
 
 		for (const [name, result] of results) {
 			if (result.exitCode === 0) continue;
@@ -359,7 +356,7 @@ export async function runCheck(
 				target: `${check.subsystem}:${fixAction}`,
 			});
 			run(cmd, {
-				cwd: sub.cwd ? resolve(config.rootDir, sub.cwd) : config.rootDir,
+				cwd: resolveCwd(config.rootDir, undefined, sub.cwd),
 				env: envOverrides,
 			});
 			fixedChecks.push(check);
@@ -369,33 +366,12 @@ export async function runCheck(
 		if (fixedChecks.length > 0) {
 			logger.info("re-verifying fixed checks...");
 			const reStartTime = Date.now();
-			const rePromises: Promise<CollectResult>[] = [];
-			const reFallbacks: CollectResult[] = [];
-
-			for (const check of fixedChecks) {
-				const { cmd, opts } = resolveCommandDef(check.def);
-				const sub = config.subsystems[check.subsystem]!;
-				const cwd = opts.cwd
-					? resolve(config.rootDir, opts.cwd)
-					: sub.cwd
-						? resolve(config.rootDir, sub.cwd)
-						: config.rootDir;
-
-				rePromises.push(
-					spawnCollect(cmd, reStartTime, {
-						cwd,
-						env: envOverrides,
-						name: check.name,
-					}),
-				);
-				reFallbacks.push({
-					name: check.name,
-					stdout: "",
-					stderr: "",
-					exitCode: 1,
-					elapsed: "0.0",
-				});
-			}
+			const { promises: rePromises, fallbacks: reFallbacks } = spawnChecks(
+				fixedChecks,
+				config,
+				envOverrides,
+				reStartTime,
+			);
 
 			hasFailure = false;
 			await raceInOrder(rePromises, reFallbacks, (result) => {
@@ -416,7 +392,7 @@ export async function runCheck(
 
 	// Run after:check hook
 	if (config.hooks?.["after:check"]) {
-		await config.hooks["after:check"](hookCtx, results);
+		await config.hooks["after:check"](baseHookCtx, results);
 	}
 
 	// Cleanup

@@ -1,10 +1,10 @@
-import { resolve } from "node:path";
 import { getLogger } from "@logtape/logtape";
 import { c } from "../fmt.ts";
 import {
 	collectRequires,
 	getMissingTools,
-	resolveCmd,
+	resolveCommandDef,
+	resolveCwd,
 	run,
 	runPiped,
 } from "../proc.ts";
@@ -66,21 +66,11 @@ export async function runPreCommit(config: ResolvedConfig): Promise<number> {
 		const checkDef: CommandDef | undefined = sub.commands["format-check"];
 		if (!checkDef) continue;
 
-		const requires = collectRequires(sub.requires, checkDef!);
+		const requires = collectRequires(sub.requires, checkDef);
 		if (requires.length > 0 && getMissingTools(requires).length > 0) continue;
 
-		const cwd = sub!.cwd ? resolve(config.rootDir, sub!.cwd) : config.rootDir;
-
-		// Run format check
-		let checkCmd: string[];
-		if (typeof checkDef === "string") {
-			checkCmd = resolveCmd(checkDef);
-		} else if (Array.isArray(checkDef)) {
-			checkCmd = checkDef;
-		} else {
-			checkCmd = resolveCmd(checkDef.cmd);
-		}
-
+		const cwd = resolveCwd(config.rootDir, undefined, sub.cwd);
+		const { cmd: checkCmd } = resolveCommandDef(checkDef);
 		const checkResult = runPiped(checkCmd, { cwd });
 
 		if (checkResult.exitCode === 0) {
@@ -100,15 +90,8 @@ export async function runPreCommit(config: ResolvedConfig): Promise<number> {
 			continue;
 		}
 
-		const fixDef = sub!.commands![fixAction]!;
-		let fixCmd: string[];
-		if (typeof fixDef === "string") {
-			fixCmd = resolveCmd(fixDef);
-		} else if (Array.isArray(fixDef)) {
-			fixCmd = fixDef;
-		} else {
-			fixCmd = resolveCmd(fixDef.cmd);
-		}
+		const fixDef = sub.commands[fixAction]!;
+		const { cmd: fixCmd } = resolveCommandDef(fixDef);
 
 		// Check for partial staging conflicts
 		const conflictingFiles = files.filter((f) => partiallyStaged.has(f));

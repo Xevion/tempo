@@ -38,5 +38,3 @@ export const c = ansis.extend({
 	mantle: mocha.mantle.hex,
 	crust: mocha.crust.hex,
 });
-
-export const strip = ansis.strip;

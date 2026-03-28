@@ -10,7 +10,7 @@ import { runFmt } from "./runners/fmt.ts";
 import { runLint } from "./runners/lint.ts";
 import { runPreCommit } from "./runners/pre-commit.ts";
 import { runCustom } from "./runners/run.ts";
-import type { CommandFlagDef, DevFlag } from "./types.ts";
+import type { CommandFlagDef } from "./types.ts";
 
 function extractGlobalFlags(): {
 	verbosity: number;
@@ -25,29 +25,19 @@ function extractGlobalFlags(): {
 	const cleaned: string[] = [];
 
 	for (let i = 0; i < args.length; i++) {
-		const arg = args[i];
-		if (arg === "-v") {
-			verbosity++;
-			continue;
-		}
-		if (arg === "-vv") {
-			verbosity += 2;
-			continue;
-		}
-		if (arg === "-vvv") {
-			verbosity += 3;
-			continue;
-		}
-		if (arg === "-q" || arg === "--quiet") {
+		const arg = args[i]!;
+		const vMatch = /^-(v{1,3})$/.exec(arg);
+		if (vMatch) {
+			verbosity += vMatch[1]!.length;
+		} else if (arg === "-q" || arg === "--quiet") {
 			quiet = true;
-			continue;
+		} else if (arg === "--log-file" && args[i + 1]) {
+			logFile = args[++i];
+		} else if (arg.startsWith("--log-file=")) {
+			logFile = arg.slice("--log-file=".length);
+		} else {
+			cleaned.push(arg);
 		}
-		if (arg === "--log-file" && args[i + 1]) {
-			logFile = args[i + 1];
-			i++;
-			continue;
-		}
-		cleaned.push(arg!);
 	}
 
 	return { verbosity, quiet, logFile, cleaned };
@@ -96,16 +86,6 @@ const checkCommand = command(
 	},
 );
 
-/** Convert DevFlag spec to CommandFlagDef for parseFlagsFromArgv */
-function devFlagToCommandFlag(flag: DevFlag): CommandFlagDef {
-	return {
-		type: flag.type,
-		alias: flag.alias,
-		description: flag.description,
-		default: flag.default,
-	};
-}
-
 const devCommand = command(
 	{
 		name: "dev",
@@ -125,10 +105,7 @@ const devCommand = command(
 
 		let devFlags: Record<string, unknown> = {};
 		if (config.dev?.flags && Object.keys(config.dev.flags).length > 0) {
-			const flagSpec: Record<string, CommandFlagDef> = {};
-			for (const [name, def] of Object.entries(config.dev.flags)) {
-				flagSpec[name] = devFlagToCommandFlag(def);
-			}
+			const flagSpec = config.dev.flags as Record<string, CommandFlagDef>;
 			const devArgIndex = process.argv.indexOf("dev");
 			if (devArgIndex !== -1) {
 				const rawDevArgs = process.argv.slice(devArgIndex + 1);
