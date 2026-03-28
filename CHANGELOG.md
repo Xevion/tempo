@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.1.3](https://github.com/Xevion/tempo/compare/v0.1.2...v0.1.3) (2026-03-28)
+
+
+### Bug Fixes
+
+* capture and display build errors when verbose mode is off ([4a64478](https://github.com/Xevion/tempo/commit/4a644786f33a25e7344724e462f82766d9effd2c))
+* include BackendWatcher lifetime in ProcessGroup wait methods ([823c42e](https://github.com/Xevion/tempo/commit/823c42e92e6dad4746265081839401292df40187))
+* resolve signal handling race that corrupts terminal on Ctrl+C ([881a84f](https://github.com/Xevion/tempo/commit/881a84f3386ca9b8877a20ea3c36ff9a58663e98))
+
+
+### Documentation
+
+* add tempo-config skill for consumer config authoring ([3d7cb52](https://github.com/Xevion/tempo/commit/3d7cb5265b69a62eff4efba34252588b19c91e7c))
+
+
+### Code Refactoring
+
+* extract shared hooks, command resolution, and runner logic ([89065cd](https://github.com/Xevion/tempo/commit/89065cd93b8237e8bab9c7de56b3b3e1472a4b01))
+
+
+### Miscellaneous
+
+* add stricter TypeScript and linting configuration ([2d3755c](https://github.com/Xevion/tempo/commit/2d3755c80e03ea1fadba01993b9b29231efeb496))
+* **ci:** bump the github-actions group with 3 updates ([86b6ee1](https://github.com/Xevion/tempo/commit/86b6ee17a5964490fd4402761189d6b905b6e0e8))
+* tighten TypeScript and Biome lint rules, fix all warnings ([6a3f48c](https://github.com/Xevion/tempo/commit/6a3f48cd72703727c599b1ac1c0e6dedd665eaa5))
+
 ## [0.1.2](https://github.com/Xevion/tempo/compare/v0.1.1...v0.1.2) (2026-03-23)
 
 
