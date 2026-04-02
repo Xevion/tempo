@@ -1,4 +1,3 @@
-import { parseFlagsFromArgv } from "./flags.ts";
 import * as fmt from "./fmt.ts";
 import { biome } from "./presets/biome.ts";
 import { go } from "./presets/go.ts";
@@ -27,14 +26,16 @@ export type {
 	CustomCommandFn,
 	DeclarativePreflight,
 	DevConfig,
-	DevFlag,
 	DevProcess,
 	ExitBehavior,
+	FmtConfig,
 	HookContext,
 	Hooks,
 	InferFlags,
 	InlineCommandSpec,
+	LintConfig,
 	ManagedProcess,
+	PreCommitConfig,
 	PreflightContext,
 	PreflightDef,
 	ResolvedConfig,
@@ -74,26 +75,28 @@ export function defineCommand<
 	>,
 >(spec: CommandSpec<TFlags>, selfExecute?: boolean): CommandSpec<TFlags> {
 	if (selfExecute) {
-		const args = process.argv.slice(2);
-		const { flags, positional } = spec.flags
-			? parseFlagsFromArgv(spec.flags as Record<string, CommandFlagDef>, args)
-			: { flags: {}, positional: args };
+		import("cleye").then(({ cli: cleyeCli }) => {
+			const parsed = cleyeCli({
+				name: spec.name,
+				flags: (spec.flags ?? {}) as unknown as import("cleye").Flags,
+				help: spec.description ? { description: spec.description } : undefined,
+			});
 
-		const group = new ProcessGroup({ signal: "natural" });
-
-		Promise.resolve(
-			spec.run({
-				group,
-				config: null,
-				flags: flags as InferFlags<TFlags>,
-				args: positional,
-				run,
-				runPiped,
-				fmt,
-			}),
-		).then((code) => {
-			group.dispose();
-			process.exit(code);
+			const group = new ProcessGroup({ signal: "natural" });
+			Promise.resolve(
+				spec.run({
+					group,
+					config: null,
+					flags: parsed.flags as InferFlags<TFlags>,
+					args: parsed._,
+					run,
+					runPiped,
+					fmt,
+				}),
+			).then((code) => {
+				group.dispose();
+				process.exit(code);
+			});
 		});
 	}
 

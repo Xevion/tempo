@@ -136,7 +136,7 @@ function renderResult(
 export async function runCheck(
 	config: ResolvedConfig,
 	args: string[],
-	flags: { fix?: boolean },
+	flags: Record<string, unknown>,
 ): Promise<number> {
 	const targetResult = resolveAndLogTargets(args, config.subsystems, logger);
 

@@ -202,6 +202,9 @@ export async function loadConfig(options?: {
 			exitBehavior: "first-exits",
 			...config.dev,
 		},
+		fmt: config.fmt ?? {},
+		lint: config.lint ?? {},
+		preCommit: config.preCommit ?? {},
 		ci: {
 			inject: { CI: "1" },
 			groupedOutput: !!process.env.GITHUB_ACTIONS,

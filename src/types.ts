@@ -54,6 +54,7 @@ export interface CheckRenderEvent {
 }
 
 export interface CheckConfig<TSubsystems extends string = string> {
+	flags?: Record<string, CommandFlagDef>;
 	exclude?: `${NoInfer<TSubsystems>}:${string}`[];
 	autoFixStrategy?: AutoFixStrategy;
 	options?: Partial<
@@ -69,8 +70,6 @@ export interface CheckConfig<TSubsystems extends string = string> {
 	>;
 	renderer?: (event: CheckRenderEvent) => void;
 }
-
-export type DevFlag = CommandFlagDef;
 
 export interface UnmanagedProcess {
 	type: "unmanaged";
@@ -104,8 +103,20 @@ export type DevProcess = UnmanagedProcess | ManagedProcess;
 
 export type ExitBehavior = "first-exits" | "all-exit";
 
+export interface FmtConfig {
+	flags?: Record<string, CommandFlagDef>;
+}
+
+export interface LintConfig {
+	flags?: Record<string, CommandFlagDef>;
+}
+
+export interface PreCommitConfig {
+	flags?: Record<string, CommandFlagDef>;
+}
+
 export interface DevConfig<TSubsystems extends string = string> {
-	flags?: Record<string, DevFlag>;
+	flags?: Record<string, CommandFlagDef>;
 	exitBehavior?: ExitBehavior;
 	processes?: Partial<Record<NoInfer<TSubsystems>, DevProcess>>;
 }
@@ -164,6 +175,9 @@ export interface TempoConfig<TSubsystems extends string = string> {
 	preflights?: PreflightDef[];
 	check?: CheckConfig<TSubsystems>;
 	dev?: DevConfig<TSubsystems>;
+	fmt?: FmtConfig;
+	lint?: LintConfig;
+	preCommit?: PreCommitConfig;
 	custom?: Record<string, CustomCommandEntry>;
 	ci?: CIConfig;
 	hooks?: Hooks<TSubsystems>;
@@ -195,6 +209,7 @@ export interface CommandFlagDef {
 	alias?: string;
 	description?: string;
 	default?: boolean | string | number;
+	[key: string]: unknown;
 }
 
 export interface CommandSpec<

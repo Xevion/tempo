@@ -13,7 +13,10 @@ import type { CommandDef, ResolvedConfig } from "../types.ts";
 const logger = getLogger(["tempo", "pre-commit"]);
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-commit flow with partial staging detection
-export async function runPreCommit(config: ResolvedConfig): Promise<number> {
+export async function runPreCommit(
+	config: ResolvedConfig,
+	_flags: Record<string, unknown>,
+): Promise<number> {
 	// Get staged files
 	const staged = runPiped("git diff --cached --name-only --diff-filter=ACMR");
 	if (staged.exitCode !== 0) {

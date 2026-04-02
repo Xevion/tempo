@@ -186,7 +186,17 @@ check: {
 
 **Check matrix:** All commands across all subsystems are included by default. Use `exclude` to remove specific pairs. Adding a command to a subsystem automatically includes it in `tempo check`.
 
-CLI: `tempo check [targets...] [--fix]`
+Config-defined flags can be added to check via `check.flags`:
+```typescript
+check: {
+  flags: {
+    strict: { type: Boolean, description: "Enable strict mode" },
+  },
+  // ... other check config
+}
+```
+
+CLI: `tempo check [targets...] [--fix] [--strict]`
 
 ## Dev Runner
 
@@ -251,7 +261,7 @@ Preflights run serially. A failure stops the check run immediately.
 
 ## Custom Commands
 
-Register scripts invocable via `tempo run <name>`:
+Custom commands are registered as top-level CLI subcommands. Invoke directly (`tempo smoke`) or via the `run` alias (`tempo run smoke`). Custom commands can shadow built-in commands.
 
 ```typescript
 custom: {
@@ -351,15 +361,18 @@ Auto-detects: `CI`, `GITHUB_ACTIONS`, `GITLAB_CI`, `CIRCLECI`, `JENKINS_URL`, `B
 
 | Command | Description |
 |---------|-------------|
-| `tempo check [targets...] [--fix]` | Parallel checks with spinner, auto-fix, preflights |
-| `tempo dev [targets...] [--flags...]` | Multi-process dev server manager |
-| `tempo fmt [targets...] [-- passthrough...]` | Sequential formatting |
-| `tempo lint [targets...] [-- passthrough...]` | Sequential linting |
-| `tempo pre-commit` | Staged-file formatter with partial staging detection |
-| `tempo run <name> [args...]` | Execute custom command |
+| `tempo check [targets...] [--fix] [flags...]` | Parallel checks with spinner, auto-fix, preflights |
+| `tempo dev [targets...] [flags...]` | Multi-process dev server manager |
+| `tempo fmt [targets...] [flags...] [-- passthrough...]` | Sequential formatting |
+| `tempo lint [targets...] [flags...] [-- passthrough...]` | Sequential linting |
+| `tempo pre-commit [flags...]` | Staged-file formatter with partial staging detection |
+| `tempo <custom-name> [args...]` | Custom command (top-level subcommand) |
+| `tempo run <name> [args...]` | Custom command (via run alias) |
 | `tempo run --list` | List registered custom commands |
 
-Global flags: `--config <path>`, `--help`, `--version`
+Global flags (pre-extracted, work with all commands): `--config <path>`, `-v`/`-vv`/`-vvv`, `-q`/`--quiet`, `--log-file <path>`, `--help`, `--version`
+
+All runner commands accept config-defined flags from their respective config sections (e.g., `check.flags`, `dev.flags`).
 
 Target resolution: positional args resolve via alias map. No targets = all subsystems.
 

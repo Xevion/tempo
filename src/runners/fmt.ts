@@ -4,6 +4,7 @@ import { runSequential } from "./sequential.ts";
 export async function runFmt(
 	config: ResolvedConfig,
 	args: string[],
+	_flags: Record<string, unknown>,
 	passthrough: string[],
 ): Promise<number> {
 	return runSequential(config, args, passthrough, {
