@@ -1,3 +1,9 @@
+import { reexecUnderBun, shouldReexec } from "./runtime.ts";
+
+if (shouldReexec()) {
+	reexecUnderBun();
+}
+
 import { cli, command } from "cleye";
 import pkg from "../package.json";
 import { loadConfig } from "./config.ts";

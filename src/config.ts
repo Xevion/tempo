@@ -87,6 +87,15 @@ if ("Bun" in globalThis) {
 	register(`data:text/javascript,${encodeURIComponent(loaderCode)}`);
 }
 
+function isBunConfigError(error: unknown): boolean {
+	const msg = error instanceof Error ? error.message : String(error);
+	return (
+		/Cannot find (?:module|package) ['"]bun['"]/.test(msg) ||
+		msg.includes("ERR_MODULE_NOT_FOUND") ||
+		/from ['"]bun['"]/.test(msg)
+	);
+}
+
 function detectCI(config: TempoConfig): boolean {
 	if (config.ci?.enabled !== undefined) return config.ci.enabled;
 	return CI_ENV_VARS.some((v) => process.env[v]);
@@ -105,35 +114,43 @@ function discoverConfigPath(startDir: string): string | null {
 	}
 }
 
-/** Load and resolve the tempo config from a file path or by auto-discovery */
-export async function loadConfig(options?: {
-	configPath?: string;
-	cwd?: string;
-}): Promise<ResolvedConfig> {
-	const cwd = options?.cwd ?? process.cwd();
-
-	let configPath: string;
-	if (options?.configPath) {
-		configPath = resolve(cwd, options.configPath);
+function resolveConfigPath(cwd: string, explicitPath?: string): string {
+	if (explicitPath) {
+		const configPath = resolve(cwd, explicitPath);
 		if (!existsSync(configPath)) {
 			console.error(`Config file not found: ${configPath}`);
 			process.exit(1);
 		}
-	} else {
-		const discovered = discoverConfigPath(cwd);
-		if (!discovered) {
+		return configPath;
+	}
+	const discovered = discoverConfigPath(cwd);
+	if (!discovered) {
+		console.error(
+			`Could not find ${CONFIG_FILENAME}. Create one in your project root or use --config <path>.`,
+		);
+		process.exit(1);
+	}
+	return discovered;
+}
+
+async function importConfig(configPath: string): Promise<TempoConfig> {
+	let mod: Record<string, unknown>;
+	try {
+		mod = await import(configPath);
+	} catch (error) {
+		if (!isBun && isBunConfigError(error)) {
 			console.error(
-				`Could not find ${CONFIG_FILENAME}. Create one in your project root or use --config <path>.`,
+				`\nThis config appears to use Bun-specific imports, but tempo is running under Node.\n\n` +
+					`To fix this, either:\n` +
+					`  1. Add a bun.lock file to your project (run: bun install)\n` +
+					`  2. Run directly with Bun: bun run tempo check\n` +
+					`  3. Use bunx --bun: bunx --bun tempo check\n`,
 			);
 			process.exit(1);
 		}
-		configPath = discovered;
+		throw error;
 	}
-
-	const rootDir = dirname(configPath);
-
-	const mod = await import(configPath);
-	const config: TempoConfig = mod.default ?? mod;
+	const config = (mod.default ?? mod) as TempoConfig;
 
 	if (!config.subsystems || Object.keys(config.subsystems).length === 0) {
 		console.error(
@@ -141,7 +158,34 @@ export async function loadConfig(options?: {
 		);
 		process.exit(1);
 	}
+	return config;
+}
 
+async function enforceRuntime(config: TempoConfig): Promise<void> {
+	if (config.runtime === "bun" && !isBun) {
+		const { isBunAvailable, reexecUnderBun } = await import("./runtime.ts");
+		if (isBunAvailable()) {
+			reexecUnderBun();
+		} else {
+			console.error(
+				`Config specifies runtime: "bun" but bun is not installed.\n` +
+					`Install Bun: https://bun.sh/docs/installation`,
+			);
+			process.exit(1);
+		}
+	}
+}
+
+/** Load and resolve the tempo config from a file path or by auto-discovery */
+export async function loadConfig(options?: {
+	configPath?: string;
+	cwd?: string;
+}): Promise<ResolvedConfig> {
+	const cwd = options?.cwd ?? process.cwd();
+	const configPath = resolveConfigPath(cwd, options?.configPath);
+	const rootDir = dirname(configPath);
+	const config = await importConfig(configPath);
+	await enforceRuntime(config);
 	const isCI = detectCI(config);
 
 	return {

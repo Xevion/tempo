@@ -167,6 +167,8 @@ export interface TempoConfig<TSubsystems extends string = string> {
 	custom?: Record<string, CustomCommandEntry>;
 	ci?: CIConfig;
 	hooks?: Hooks<TSubsystems>;
+	/** Preferred runtime. When set and mismatched, tempo re-execs under the correct runtime. */
+	runtime?: "bun" | "node";
 }
 
 /** Config after loading and resolution — all fields populated with defaults */
