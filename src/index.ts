@@ -19,9 +19,11 @@ export type {
 	CollectResult,
 	CommandContext,
 	CommandDef,
+	CommandEntry,
 	CommandFlagDef,
 	CommandObject,
 	CommandSpec,
+	CommandTree,
 	CustomCommandEntry,
 	CustomCommandFn,
 	DeclarativePreflight,
@@ -89,6 +91,7 @@ export function defineCommand<
 					config: null,
 					flags: parsed.flags as InferFlags<TFlags>,
 					args: parsed._,
+					passthrough: [],
 					run,
 					runPiped,
 					fmt,
@@ -107,3 +110,5 @@ export { biome, go, gradle, rust };
 
 /** Preset namespace for convenient access */
 export const presets = { rust, biome, go, gradle } as const;
+
+export { runners } from "./runners/factories.ts";

@@ -37,3 +37,21 @@ export function buildHookContext(
 
 	return { hookCtx, cleanupFns, hookEnv };
 }
+
+/**
+ * Fire a generic before:/after: hook for any command name.
+ * Returns the cleanup functions registered during the hook (caller must drain them).
+ */
+export async function runCommandHook(
+	config: ResolvedConfig,
+	hookName: `before:${string}` | `after:${string}`,
+	flags: Record<string, unknown>,
+	targets: Set<string> = new Set(),
+): Promise<(() => void | Promise<void>)[]> {
+	const hookFn = config.hooks?.[hookName];
+	if (!hookFn) return [];
+
+	const { hookCtx, cleanupFns } = buildHookContext(config, flags, targets);
+	await hookFn(hookCtx);
+	return cleanupFns;
+}

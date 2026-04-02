@@ -1,4 +1,4 @@
-import { defineConfig } from "./src/index.ts";
+import { defineConfig, runners } from "./src/index.ts";
 
 export default defineConfig({
 	subsystems: {
@@ -71,7 +71,15 @@ export default defineConfig({
 			},
 		},
 	},
-	check: {
-		autoFixStrategy: "fix-on-fail",
+	commands: {
+		check: runners.check({ autoFixStrategy: "fix-on-fail" }),
+		fmt: runners.sequential("format-apply", {
+			description: "Sequential per-subsystem formatting",
+			autoFixFallback: true,
+		}),
+		lint: runners.sequential("lint", {
+			description: "Sequential per-subsystem linting",
+		}),
+		"pre-commit": runners.preCommit(),
 	},
 });

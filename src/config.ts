@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { ResolvedConfig, TempoConfig } from "./types.ts";
+import { check, dev, preCommit, sequential } from "./runners/factories.ts";
+import type { CommandTree, ResolvedConfig, TempoConfig } from "./types.ts";
 
 const CONFIG_FILENAME = "tempo.config.ts";
 
@@ -176,6 +177,46 @@ async function enforceRuntime(config: TempoConfig): Promise<void> {
 	}
 }
 
+/**
+ * Build the resolved command tree from config.
+ *
+ * - Legacy mode (no `commands` key): auto-populate with built-in runners + custom entries.
+ * - Explicit mode (`commands` present): use as-is, merge any `custom` entries not already in commands.
+ */
+function resolveCommands(config: TempoConfig): CommandTree {
+	const hasExplicitCommands = config.commands !== undefined;
+
+	if (!hasExplicitCommands) {
+		// Legacy mode — auto-register all built-in runners + custom commands
+		return {
+			check: check(config.check),
+			dev: dev(config.dev),
+			fmt: sequential("format-apply", {
+				description: "Sequential per-subsystem formatting",
+				autoFixFallback: true,
+				flags: config.fmt?.flags,
+			}),
+			lint: sequential("lint", {
+				description: "Sequential per-subsystem linting",
+				flags: config.lint?.flags,
+			}),
+			"pre-commit": preCommit(config.preCommit),
+			...(config.custom ?? {}),
+		};
+	}
+
+	// Explicit mode — commands wins, merge custom entries that don't conflict
+	const tree: CommandTree = { ...config.commands };
+	if (config.custom) {
+		for (const [name, entry] of Object.entries(config.custom)) {
+			if (!(name in tree)) {
+				tree[name] = entry;
+			}
+		}
+	}
+	return tree;
+}
+
 /** Load and resolve the tempo config from a file path or by auto-discovery */
 export async function loadConfig(options?: {
 	configPath?: string;
@@ -212,5 +253,6 @@ export async function loadConfig(options?: {
 		},
 		hooks: config.hooks ?? {},
 		custom: config.custom ?? {},
+		commands: resolveCommands(config),
 	};
 }

@@ -152,6 +152,7 @@ export interface CheckInfo {
 }
 
 export interface Hooks<TSubsystems extends string = string> {
+	// Runner-specific hooks with typed signatures
 	"before:check"?: (ctx: HookContext<TSubsystems>) => Promise<void> | void;
 	"after:check"?: (
 		ctx: HookContext<TSubsystems>,
@@ -168,16 +169,28 @@ export interface Hooks<TSubsystems extends string = string> {
 	) => Promise<void> | void;
 	"before:dev"?: (ctx: HookContext<TSubsystems>) => Promise<void> | void;
 	"after:dev"?: (ctx: HookContext<TSubsystems>) => Promise<void> | void;
+	// Generic before:/after: hooks for any command name
+	[key: `before:${string}`]:
+		| // biome-ignore lint/suspicious/noExplicitAny: index signature must be wide enough for all specific overloads
+		((ctx: HookContext<TSubsystems>, ...args: any[]) => Promise<void> | void)
+		| undefined;
+	[key: `after:${string}`]:
+		| // biome-ignore lint/suspicious/noExplicitAny: index signature must be wide enough for all specific overloads
+		((ctx: HookContext<TSubsystems>, ...args: any[]) => Promise<void> | void)
+		| undefined;
 }
 
 export interface TempoConfig<TSubsystems extends string = string> {
 	subsystems: Record<TSubsystems, SubsystemConfig>;
 	preflights?: PreflightDef[];
+	/** Unified command tree — all CLI subcommands (built-in runners + custom). */
+	commands?: CommandTree;
 	check?: CheckConfig<TSubsystems>;
 	dev?: DevConfig<TSubsystems>;
 	fmt?: FmtConfig;
 	lint?: LintConfig;
 	preCommit?: PreCommitConfig;
+	/** @deprecated Use `commands` instead. Custom entries are merged into `commands` during resolution. */
 	custom?: Record<string, CustomCommandEntry>;
 	ci?: CIConfig;
 	hooks?: Hooks<TSubsystems>;
@@ -191,6 +204,8 @@ export interface ResolvedConfig<TSubsystems extends string = string>
 	configPath: string;
 	rootDir: string;
 	isCI: boolean;
+	/** Always populated after resolution — contains all registered CLI subcommands. */
+	commands: CommandTree;
 }
 
 export interface CollectResult {
@@ -230,7 +245,15 @@ export type InlineCommandSpec<
 		string,
 		CommandFlagDef
 	>,
-> = Omit<CommandSpec<TFlags>, "name"> & { name?: string };
+> = Omit<CommandSpec<TFlags>, "name"> & {
+	name?: string;
+	/** Cleye parameter definitions, e.g. ["[targets...]", "--", "[passthrough...]"] */
+	parameters?: string[];
+	/** Command alias(es) for cleye, e.g. "format" for the fmt command */
+	alias?: string | string[];
+	/** When true, the command dispatches its own before:/after: hooks internally (skip generic dispatch) */
+	_managesHooks?: boolean;
+};
 
 /** Bare function for inline custom commands — receives CommandContext with no flags */
 export type CustomCommandFn = (
@@ -250,6 +273,7 @@ export interface CommandContext<
 	config: ResolvedConfig | null;
 	flags: InferFlags<TFlags>;
 	args: string[];
+	passthrough: string[];
 	run: typeof import("./proc").run;
 	runPiped: typeof import("./proc").runPiped;
 	fmt: typeof import("./fmt");
@@ -271,4 +295,26 @@ export type InferFlags<T extends Record<string, CommandFlagDef>> = {
 export interface TargetResult<T extends string> {
 	subsystems: Set<T>;
 	raw: string[];
+}
+
+/**
+ * A command entry in the unified command tree.
+ *
+ * Discrimination:
+ * - `typeof entry === 'function'` → CustomCommandFn (bare function)
+ * - `typeof entry === 'string'` → file path for dynamic import
+ * - `entry === false` → explicitly disabled
+ * - `typeof entry === 'object' && 'run' in entry` → InlineCommandSpec
+ * - `typeof entry === 'object' && !('run' in entry)` → CommandTree (nested group)
+ */
+export type CommandEntry =
+	| InlineCommandSpec
+	| CustomCommandFn
+	| string
+	| false
+	| CommandTree;
+
+/** Recursive record of command entries — supports nested command groups. */
+export interface CommandTree {
+	[key: string]: CommandEntry;
 }
