@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { getLogger } from "@logtape/logtape";
-import { buildHookContext } from "../hooks.ts";
-import { ProcessGroup, TempoAbortError } from "../proc.ts";
+import { buildHookContext, runCleanups, tryHook } from "../hooks.ts";
+import { ProcessGroup } from "../proc.ts";
 import { resolveAndLogTargets } from "../targets.ts";
 import type { ResolvedConfig } from "../types.ts";
 import { BackendWatcher } from "../watch.ts";
@@ -23,25 +23,18 @@ export async function runDev(
 		const { hookCtx, cleanupFns, hookEnv } = buildHookContext(
 			config,
 			flags,
-			targetResult.subsystems as Set<string>,
+			targetResult.subsystems,
 		);
 
-		// Run before:dev hook
-		if (config.hooks?.["before:dev"]) {
-			try {
-				await config.hooks["before:dev"](hookCtx);
-			} catch (e) {
-				if (e instanceof TempoAbortError) return 1;
-				throw e;
-			}
-		}
+		const hookAbort = await tryHook(config.hooks?.["before:dev"], hookCtx);
+		if (hookAbort !== null) return hookAbort;
 
 		const envOverrides: Record<string, string> = { ...hookEnv };
 
 		// Spawn processes
 		const processes = config.dev?.processes ?? {};
 		for (const subsystem of targetResult.subsystems) {
-			const procDef = processes[subsystem as keyof typeof processes];
+			const procDef = processes[subsystem];
 			if (!procDef) continue;
 
 			const sub = config.subsystems[subsystem];
@@ -101,14 +94,7 @@ export async function runDev(
 			await config.hooks["after:dev"](hookCtx);
 		}
 
-		// Cleanup
-		for (const fn of cleanupFns) {
-			try {
-				await fn();
-			} catch {
-				// best-effort
-			}
-		}
+		await runCleanups(cleanupFns);
 
 		return exitCode;
 	} finally {

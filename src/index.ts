@@ -49,6 +49,8 @@ export type {
 	UnmanagedProcess,
 } from "./types.ts";
 
+export { FORMAT_APPLY, FORMAT_CHECK } from "./types.ts";
+
 export {
 	parseIntOption,
 	resolveEnumOption,

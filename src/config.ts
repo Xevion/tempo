@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { CommandTree, ResolvedConfig, TempoConfig } from "./types.ts";
+import { FORMAT_CHECK } from "./types.ts";
 
 const CONFIG_FILENAME = "tempo.config.ts";
 
@@ -97,6 +98,27 @@ async function importConfig(configPath: string): Promise<TempoConfig> {
 	return config;
 }
 
+/** Warn if subsystems declare autoFix with format-check but don't have the required commands */
+function validateFormatProtocol(config: TempoConfig): void {
+	if (!config.preCommit) return;
+	for (const [name, sub] of Object.entries(config.subsystems)) {
+		if (!sub.autoFix?.[FORMAT_CHECK]) continue;
+		if (!sub.commands?.[FORMAT_CHECK]) {
+			console.warn(
+				`Warning: subsystem '${name}' has autoFix['${FORMAT_CHECK}'] but no '${FORMAT_CHECK}' command. ` +
+					`Pre-commit will skip this subsystem.`,
+			);
+		}
+		const fixTarget = sub.autoFix[FORMAT_CHECK];
+		if (fixTarget && !sub.commands?.[fixTarget]) {
+			console.warn(
+				`Warning: subsystem '${name}' autoFix maps '${FORMAT_CHECK}' → '${fixTarget}', ` +
+					`but '${fixTarget}' command does not exist.`,
+			);
+		}
+	}
+}
+
 async function enforceRuntime(config: TempoConfig): Promise<void> {
 	if (config.runtime === "bun" && !("Bun" in globalThis)) {
 		const { isBunAvailable, reexecUnderBun } = await import("./runtime.ts");
@@ -136,6 +158,7 @@ export async function loadConfig(options?: {
 	const configPath = resolveConfigPath(cwd, options?.configPath);
 	const rootDir = dirname(configPath);
 	const config = await importConfig(configPath);
+	validateFormatProtocol(config);
 	await enforceRuntime(config);
 	const isCI = detectCI(config);
 	const commands = mergeCustomCommands(config.commands, config.custom);

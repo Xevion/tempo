@@ -1,9 +1,8 @@
 import { getLogger } from "@logtape/logtape";
 import { elapsed, isStderrTTY } from "../fmt.ts";
-import { buildHookContext } from "../hooks.ts";
+import { buildHookContext, runCleanups, tryHook } from "../hooks.ts";
 import {
-	collectRequires,
-	getMissingTools,
+	checkMissingTools,
 	raceInOrder,
 	resolveCommandDef,
 	TempoAbortError,
@@ -12,7 +11,6 @@ import { resolveAndLogTargets } from "../targets.ts";
 import type {
 	CheckInfo,
 	CollectResult,
-	CommandDef,
 	HookContext,
 	ResolvedConfig,
 } from "../types.ts";
@@ -28,44 +26,34 @@ import { type CheckEntry, spawnChecks } from "./check-spawn.ts";
 
 const logger = getLogger(["tempo", "check"]);
 
-/** Check if a subsystem command has all required tools available */
-function hasRequiredTools(
-	sub: { requires?: string[] },
-	def: CommandDef,
-	checkName: string,
-): boolean {
-	const requires = collectRequires(sub.requires, def);
-	if (requires.length === 0) return true;
-	const missing = getMissingTools(requires);
-	if (missing.length === 0) return true;
-	logger.warn("skip {name} (missing: {tools})", {
-		name: checkName,
-		tools: missing.join(", "),
-	});
-	return false;
-}
-
 /** Build the list of checks to run from targeted subsystems */
 function buildCheckList(
 	subsystems: Set<string>,
 	config: ResolvedConfig,
 ): CheckEntry[] {
 	const checks: CheckEntry[] = [];
-	const excluded = new Set(config.check?.exclude ?? []);
+	const excluded: Set<string> = new Set(config.check?.exclude ?? []);
 
 	for (const subsystem of subsystems) {
 		const sub = config.subsystems[subsystem];
 		if (!sub?.commands) continue;
 		for (const [action, def] of Object.entries(sub.commands)) {
 			const checkName = `${subsystem}:${action}`;
-			if (excluded.has(checkName as `${string}:${string}`)) continue;
-			if (!hasRequiredTools(sub, def as CommandDef, checkName)) continue;
+			if (excluded.has(checkName)) continue;
+			const missing = checkMissingTools(sub.requires, def);
+			if (missing) {
+				logger.warn("skip {name} (missing: {tools})", {
+					name: checkName,
+					tools: missing.join(", "),
+				});
+				continue;
+			}
 
 			checks.push({
 				name: checkName,
 				subsystem,
 				action,
-				def: def as CommandDef,
+				def,
 			});
 		}
 	}
@@ -160,32 +148,6 @@ async function collectResults(
 	return { results, hasFailure };
 }
 
-/** Run cleanup functions best-effort */
-async function runCleanups(fns: (() => void | Promise<void>)[]): Promise<void> {
-	for (const fn of fns) {
-		try {
-			await fn();
-		} catch {
-			// best-effort
-		}
-	}
-}
-
-/** Try to run a hook, returning 1 on TempoAbortError */
-async function tryHook(
-	hook: ((ctx: HookContext) => void | Promise<void>) | undefined,
-	hookCtx: HookContext,
-): Promise<number | null> {
-	if (!hook) return null;
-	try {
-		await hook(hookCtx);
-	} catch (e) {
-		if (e instanceof TempoAbortError) return 1;
-		throw e;
-	}
-	return null;
-}
-
 export async function runCheck(
 	config: ResolvedConfig,
 	args: string[],
@@ -193,10 +155,8 @@ export async function runCheck(
 ): Promise<number> {
 	const targetResult = resolveAndLogTargets(args, config.subsystems, logger);
 
-	for (const name of Object.keys(config.subsystems)) {
-		if (
-			(config.subsystems[name] as (typeof config.subsystems)[string]).alwaysRun
-		) {
+	for (const [name, sub] of Object.entries(config.subsystems)) {
+		if (sub.alwaysRun) {
 			targetResult.subsystems.add(name);
 		}
 	}
@@ -205,10 +165,10 @@ export async function runCheck(
 		hookCtx: baseHookCtx,
 		cleanupFns,
 		hookEnv,
-	} = buildHookContext(config, flags, targetResult.subsystems as Set<string>);
+	} = buildHookContext(config, flags, targetResult.subsystems);
 
 	const startTime = Date.now();
-	const checks = buildCheckList(targetResult.subsystems as Set<string>, config);
+	const checks = buildCheckList(targetResult.subsystems, config);
 	const spinner = createSpinner(
 		config,
 		startTime,

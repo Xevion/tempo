@@ -38,6 +38,37 @@ export function buildHookContext(
 	return { hookCtx, cleanupFns, hookEnv };
 }
 
+/** Try to run a hook, returning 1 on TempoAbortError, null on success or if no hook */
+export async function tryHook(
+	hook:
+		| ((ctx: HookContext, ...args: unknown[]) => void | Promise<void>)
+		| undefined,
+	hookCtx: HookContext,
+	...args: unknown[]
+): Promise<number | null> {
+	if (!hook) return null;
+	try {
+		await hook(hookCtx, ...args);
+	} catch (e) {
+		if (e instanceof TempoAbortError) return 1;
+		throw e;
+	}
+	return null;
+}
+
+/** Run cleanup functions best-effort */
+export async function runCleanups(
+	fns: (() => void | Promise<void>)[],
+): Promise<void> {
+	for (const fn of fns) {
+		try {
+			await fn();
+		} catch {
+			// best-effort
+		}
+	}
+}
+
 /**
  * Fire a generic before:/after: hook for any command name.
  * Returns the cleanup functions registered during the hook (caller must drain them).
@@ -59,6 +90,10 @@ export async function runCommandHook(
 		flags,
 		targets,
 	);
-	await hookFn(hookCtx);
+	const abort = await tryHook(hookFn, hookCtx);
+	if (abort !== null) {
+		await runCleanups(cleanupFns);
+		throw new TempoAbortError("Hook aborted");
+	}
 	return { cleanupFns, hookEnv };
 }

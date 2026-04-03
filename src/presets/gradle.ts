@@ -1,4 +1,4 @@
-import type { SubsystemConfig } from "../types.ts";
+import { FORMAT_APPLY, FORMAT_CHECK, type SubsystemConfig } from "../types.ts";
 
 export interface GradlePresetOptions {
 	cwd?: string;
@@ -24,14 +24,14 @@ export function gradle(options?: GradlePresetOptions): SubsystemConfig {
 	return {
 		aliases: ["gradle", "kt", "kotlin"],
 		commands: {
-			"format-check": `./gradlew spotlessCheck ktlintCheck${suffix}`,
-			"format-apply": `./gradlew spotlessApply ktlintFormat${suffix}`,
+			[FORMAT_CHECK]: `./gradlew spotlessCheck ktlintCheck${suffix}`,
+			[FORMAT_APPLY]: `./gradlew spotlessApply ktlintFormat${suffix}`,
 			lint: `./gradlew detekt${suffix}`,
 			compile: `./gradlew ${compileTargets}${suffix}`,
 			test: `./gradlew test${suffix}`,
 		},
 		autoFix: {
-			"format-check": "format-apply",
+			[FORMAT_CHECK]: FORMAT_APPLY,
 		},
 	};
 }

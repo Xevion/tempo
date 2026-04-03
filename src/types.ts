@@ -1,3 +1,7 @@
+/** Well-known command names for the format protocol used by pre-commit */
+export const FORMAT_CHECK = "format-check" as const;
+export const FORMAT_APPLY = "format-apply" as const;
+
 /** String shorthand, array, or full object command definition */
 export type CommandDef = string | string[] | CommandObject;
 

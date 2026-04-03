@@ -1,4 +1,4 @@
-import type { SubsystemConfig } from "../types.ts";
+import { FORMAT_APPLY, FORMAT_CHECK, type SubsystemConfig } from "../types.ts";
 
 export interface RustPresetOptions {
 	manifestPath?: string;
@@ -34,14 +34,14 @@ export function rust(options?: RustPresetOptions): SubsystemConfig {
 	return {
 		aliases: ["rust", "rs"],
 		commands: {
-			"format-check": `cargo fmt --check${extra}`,
-			"format-apply": `cargo fmt${extra}`,
+			[FORMAT_CHECK]: `cargo fmt --check${extra}`,
+			[FORMAT_APPLY]: `cargo fmt${extra}`,
 			lint: `cargo clippy --all-targets${extra} -- -D warnings`,
 			test: testCmd,
 			build: buildCmd,
 		},
 		autoFix: {
-			"format-check": "format-apply",
+			[FORMAT_CHECK]: FORMAT_APPLY,
 		},
 	};
 }

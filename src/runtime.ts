@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { hasTool } from "./proc.ts";
 
 const BUN_LOCKFILES = ["bun.lockb", "bun.lock"];
 const REEXEC_ENV = "TEMPO_REEXEC";
@@ -36,11 +37,7 @@ export function shouldReexec(): boolean {
 
 /** Check if `bun` is on PATH */
 export function isBunAvailable(): boolean {
-	try {
-		return spawnSync("which", ["bun"], { stdio: "ignore" }).status === 0;
-	} catch {
-		return false;
-	}
+	return hasTool("bun");
 }
 
 /**

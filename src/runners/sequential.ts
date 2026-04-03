@@ -1,8 +1,7 @@
 import { getLogger } from "@logtape/logtape";
 import {
 	appendPassthrough,
-	collectRequires,
-	getMissingTools,
+	checkMissingTools,
 	resolveCommandDef,
 	resolveCwd,
 	run,
@@ -32,8 +31,8 @@ export async function runSequential(
 		let def: CommandDef | undefined = sub.commands[opts.commandKey];
 		if (!def && opts.autoFixFallback && sub.autoFix) {
 			for (const fixAction of Object.values(sub.autoFix)) {
-				if (sub.commands[fixAction as string]) {
-					def = sub.commands[fixAction as string];
+				if (fixAction && sub.commands[fixAction]) {
+					def = sub.commands[fixAction];
 					break;
 				}
 			}
@@ -41,16 +40,13 @@ export async function runSequential(
 
 		if (!def) continue;
 
-		const requires = collectRequires(sub.requires, def);
-		if (requires.length > 0) {
-			const missing = getMissingTools(requires);
-			if (missing.length > 0) {
-				logger.warn("skip {subsystem} (missing: {tools})", {
-					subsystem,
-					tools: missing.join(", "),
-				});
-				continue;
-			}
+		const missing = checkMissingTools(sub.requires, def);
+		if (missing) {
+			logger.warn("skip {subsystem} (missing: {tools})", {
+				subsystem,
+				tools: missing.join(", "),
+			});
+			continue;
 		}
 
 		const { cmd, opts: cmdOpts } = resolveCommandDef(def);

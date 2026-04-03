@@ -1,4 +1,4 @@
-import type { SubsystemConfig } from "../types.ts";
+import { FORMAT_APPLY, FORMAT_CHECK, type SubsystemConfig } from "../types.ts";
 
 export interface GoPresetOptions {
 	cwd?: string;
@@ -17,14 +17,14 @@ export function go(options?: GoPresetOptions): SubsystemConfig {
 	return {
 		aliases: ["go", "golang"],
 		commands: {
-			"format-check": `bash -c 'test -z "$(goimports -l .)"'`,
-			"format-apply": "goimports -w .",
+			[FORMAT_CHECK]: `bash -c 'test -z "$(goimports -l .)"'`,
+			[FORMAT_APPLY]: "goimports -w .",
 			lint: `golangci-lint run --timeout=${timeout}`,
 			build: `go build -o /dev/null ${buildTarget}`,
 			test: `go test ${testFlags} ./...`,
 		},
 		autoFix: {
-			"format-check": "format-apply",
+			[FORMAT_CHECK]: FORMAT_APPLY,
 		},
 	};
 }

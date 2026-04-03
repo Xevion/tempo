@@ -3,7 +3,7 @@ import { type FSWatcher, watch } from "node:fs";
 import { join } from "node:path";
 import { getLogger } from "@logtape/logtape";
 import { elapsed } from "./fmt.ts";
-import { onExit, resolveCmd, streamToString } from "./proc.ts";
+import { gracefulKill, onExit, resolveCmd, streamToString } from "./proc.ts";
 
 const logger = getLogger(["tempo", "watch"]);
 
@@ -212,16 +212,7 @@ export class BackendWatcher {
 
 	private async swap(): Promise<void> {
 		if (this.server) {
-			this.server.kill("SIGTERM");
-			const timeout = setTimeout(() => {
-				try {
-					this.server?.kill("SIGKILL");
-				} catch {
-					// already dead
-				}
-			}, 3000);
-			await onExit(this.server);
-			clearTimeout(timeout);
+			await gracefulKill(this.server);
 			this.server = null;
 		}
 		await this.startServer();
@@ -265,16 +256,7 @@ export class BackendWatcher {
 			await onExit(this.buildProc);
 		}
 		if (this.server) {
-			this.server.kill("SIGTERM");
-			const timeout = setTimeout(() => {
-				try {
-					this.server?.kill("SIGKILL");
-				} catch {
-					// already dead
-				}
-			}, 3000);
-			await onExit(this.server);
-			clearTimeout(timeout);
+			await gracefulKill(this.server);
 		}
 		this.resolveDone(0);
 	}

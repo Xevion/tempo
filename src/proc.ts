@@ -27,6 +27,45 @@ export function streamToString(
 	});
 }
 
+/** Default timeout for SIGTERM→SIGKILL escalation (milliseconds) */
+export const GRACEFUL_KILL_TIMEOUT_MS = 3000;
+
+/**
+ * Send SIGTERM to a process and schedule a SIGKILL fallback after `timeout` ms.
+ * Returns a function to cancel the SIGKILL timer (call when the process exits cleanly).
+ */
+export function escalateKill(
+	proc: ChildProcess,
+	timeout = GRACEFUL_KILL_TIMEOUT_MS,
+): () => void {
+	try {
+		proc.kill("SIGTERM");
+	} catch {
+		// already exited
+	}
+	const timer = setTimeout(() => {
+		try {
+			proc.kill("SIGKILL");
+		} catch {
+			// already exited
+		}
+	}, timeout);
+	return () => clearTimeout(timer);
+}
+
+/**
+ * Gracefully kill a process: SIGTERM → wait for exit → SIGKILL fallback if timeout exceeded.
+ * The SIGKILL timer is cancelled if the process exits before the timeout.
+ */
+export async function gracefulKill(
+	proc: ChildProcess,
+	timeout = GRACEFUL_KILL_TIMEOUT_MS,
+): Promise<void> {
+	const cancel = escalateKill(proc, timeout);
+	await onExit(proc);
+	cancel();
+}
+
 /** Thrown by ctx.fail() in hooks/preflights to abort with a message */
 export class TempoAbortError extends Error {
 	constructor(message?: string) {
@@ -234,26 +273,9 @@ export class ProcessGroup {
 			}
 			this.asyncCleanupFns.length = 0;
 
-			for (const child of this.children) {
-				try {
-					child.kill("SIGTERM");
-				} catch {
-					// already exited
-				}
-			}
-
-			const timeout = setTimeout(() => {
-				for (const child of this.children) {
-					try {
-						child.kill("SIGKILL");
-					} catch {
-						// already exited
-					}
-				}
-			}, 5000);
-
+			const cancels = [...this.children].map((child) => escalateKill(child));
 			await Promise.all([...this.exitPromises.values()]);
-			clearTimeout(timeout);
+			for (const cancel of cancels) cancel();
 			this.children.clear();
 			this.exitPromises.clear();
 
@@ -361,18 +383,7 @@ export async function spawnCollect(
 	if (options?.timeout) {
 		killTimer = setTimeout(() => {
 			timedOut = true;
-			try {
-				proc.kill("SIGTERM");
-			} catch {
-				// already exited
-			}
-			setTimeout(() => {
-				try {
-					proc.kill("SIGKILL");
-				} catch {
-					// already exited
-				}
-			}, 3000);
+			escalateKill(proc);
 		}, options.timeout * 1000);
 	}
 
@@ -469,6 +480,17 @@ export function collectRequires(
 /** Return tool names from a requires list that are not on PATH */
 export function getMissingTools(requires: string[]): string[] {
 	return requires.filter((tool) => !hasTool(tool));
+}
+
+/** Returns missing tool names if any required tools are absent, null if all present */
+export function checkMissingTools(
+	subsystemRequires: string[] | undefined,
+	def: CommandDef,
+): string[] | null {
+	const requires = collectRequires(subsystemRequires, def);
+	if (requires.length === 0) return null;
+	const missing = getMissingTools(requires);
+	return missing.length > 0 ? missing : null;
 }
 
 /** Resolve a CommandDef to a spawnable cmd array and its options */

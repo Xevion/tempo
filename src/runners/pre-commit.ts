@@ -1,14 +1,14 @@
 import { getLogger } from "@logtape/logtape";
 import { c } from "../fmt.ts";
 import {
-	collectRequires,
-	getMissingTools,
+	checkMissingTools,
 	resolveCommandDef,
 	resolveCwd,
 	run,
 	runPiped,
 } from "../proc.ts";
 import type { CommandDef, ResolvedConfig } from "../types.ts";
+import { FORMAT_CHECK } from "../types.ts";
 
 const logger = getLogger(["tempo", "pre-commit"]);
 
@@ -40,7 +40,7 @@ export async function runPreCommit(
 	);
 
 	// Categorize files by subsystem (match against cwd prefixes)
-	const subsystemNames = Object.keys(config.subsystems) as string[];
+	const subsystemNames = Object.keys(config.subsystems);
 	const affectedSubsystems = new Map<string, string[]>();
 
 	for (const file of stagedFiles) {
@@ -67,11 +67,10 @@ export async function runPreCommit(
 		const sub = config.subsystems[subsystem];
 		if (!sub?.commands) continue;
 
-		const checkDef: CommandDef | undefined = sub.commands["format-check"];
+		const checkDef: CommandDef | undefined = sub.commands[FORMAT_CHECK];
 		if (!checkDef) continue;
 
-		const requires = collectRequires(sub.requires, checkDef);
-		if (requires.length > 0 && getMissingTools(requires).length > 0) continue;
+		if (checkMissingTools(sub.requires, checkDef)) continue;
 
 		const cwd = resolveCwd(config.rootDir, undefined, sub.cwd);
 		const { cmd: checkCmd } = resolveCommandDef(checkDef);
@@ -85,7 +84,7 @@ export async function runPreCommit(
 		}
 
 		// Format check failed — try to auto-fix
-		const fixAction = sub.autoFix?.["format-check"];
+		const fixAction = sub.autoFix?.[FORMAT_CHECK];
 		if (!fixAction || !sub.commands[fixAction]) {
 			process.stdout.write(
 				`${c.catRed("✗")} ${c.overlay0(subsystem)} format check failed (no auto-fix available)\n`,
@@ -94,7 +93,7 @@ export async function runPreCommit(
 			continue;
 		}
 
-		const fixDef = sub.commands[fixAction] as CommandDef;
+		const fixDef = sub.commands[fixAction]!;
 		const { cmd: fixCmd } = resolveCommandDef(fixDef);
 
 		// Check for partial staging conflicts

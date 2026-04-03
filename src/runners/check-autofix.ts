@@ -1,14 +1,13 @@
 import type { Logger } from "@logtape/logtape";
 import { c, isStderrTTY } from "../fmt.ts";
 import {
-	collectRequires,
-	getMissingTools,
+	checkMissingTools,
 	raceInOrder,
 	resolveCommandDef,
 	resolveCwd,
 	run,
 } from "../proc.ts";
-import type { CollectResult, CommandDef, ResolvedConfig } from "../types.ts";
+import type { CollectResult, ResolvedConfig } from "../types.ts";
 import { type CheckEntry, spawnChecks } from "./check-spawn.ts";
 
 /** Run fix-first auto-fix: apply fixes before checks run */
@@ -28,12 +27,11 @@ export function runFixFirst(
 		if (!sub?.autoFix || !sub.commands) continue;
 
 		for (const [_checkAction, fixAction] of Object.entries(sub.autoFix)) {
-			const fixDef = sub.commands[fixAction as string];
+			if (!fixAction) continue;
+			const fixDef = sub.commands[fixAction];
 			if (!fixDef) continue;
-			const fixRequires = collectRequires(sub.requires, fixDef as CommandDef);
-			if (fixRequires.length > 0 && getMissingTools(fixRequires).length > 0)
-				continue;
-			const { cmd } = resolveCommandDef(fixDef as CommandDef);
+			if (checkMissingTools(sub.requires, fixDef)) continue;
+			const { cmd } = resolveCommandDef(fixDef);
 			logger.info("fix {target}", {
 				target: `${check.subsystem}:${fixAction}`,
 			});
@@ -69,7 +67,7 @@ export async function runFixOnFail(
 		const fixDef = sub.commands[fixAction];
 		if (!fixDef) continue;
 
-		const { cmd } = resolveCommandDef(fixDef as CommandDef);
+		const { cmd } = resolveCommandDef(fixDef);
 		logger.info("fix {target}", {
 			target: `${check.subsystem}:${fixAction}`,
 		});

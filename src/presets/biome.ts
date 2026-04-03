@@ -1,4 +1,4 @@
-import type { SubsystemConfig } from "../types.ts";
+import { FORMAT_APPLY, FORMAT_CHECK, type SubsystemConfig } from "../types.ts";
 
 export interface BiomePresetOptions {
 	svelte?: boolean;
@@ -8,8 +8,8 @@ export interface BiomePresetOptions {
 
 export function biome(options?: BiomePresetOptions): SubsystemConfig {
 	const commands: Record<string, string> = {
-		"format-check": "bunx biome check .",
-		"format-apply": "bunx biome check --write .",
+		[FORMAT_CHECK]: "bunx biome check .",
+		[FORMAT_APPLY]: "bunx biome check --write .",
 		lint: "bunx biome lint .",
 		build: "bun run build",
 	};
@@ -27,7 +27,7 @@ export function biome(options?: BiomePresetOptions): SubsystemConfig {
 		aliases: ["biome", "web", "front"],
 		commands,
 		autoFix: {
-			"format-check": "format-apply",
+			[FORMAT_CHECK]: FORMAT_APPLY,
 		},
 	};
 }
