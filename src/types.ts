@@ -184,7 +184,7 @@ export interface TempoConfig<TSubsystems extends string = string> {
 	subsystems: Record<TSubsystems, SubsystemConfig>;
 	preflights?: PreflightDef[];
 	/** Unified command tree — all CLI subcommands (built-in runners + custom). */
-	commands?: CommandTree;
+	commands: CommandTree;
 	check?: CheckConfig<TSubsystems>;
 	dev?: DevConfig<TSubsystems>;
 	fmt?: FmtConfig;

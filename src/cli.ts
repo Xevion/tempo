@@ -12,6 +12,7 @@ import * as fmt from "./fmt.ts";
 import { runCommandHook } from "./hooks.ts";
 import { setupLogging, teardownLogging } from "./logging/setup.ts";
 import { ProcessGroup, run, runPiped, TempoAbortError } from "./proc.ts";
+import { initRegistration } from "./register.ts";
 import type {
 	CommandEntry,
 	CommandFlagDef,
@@ -81,6 +82,9 @@ ProcessGroup.registerCliSignalHandlers(async (signal) => {
 	await shutdown(signal === "SIGINT" ? 130 : 143);
 });
 
+// Register virtual modules before loading config so `import from "@xevion/tempo"` works
+await initRegistration();
+
 // Load config before building commands so config-defined flags can be spread into cleye
 const config = await loadConfig({ configPath: globalFlags.configPath });
 
@@ -141,12 +145,13 @@ async function executeCommand(
 	const cleanupFns: (() => void | Promise<void>)[] = [];
 	try {
 		if (!spec._managesHooks) {
-			const hookCleanups = await runCommandHook(
+			const { cleanupFns: hookCleanups, hookEnv } = await runCommandHook(
 				config,
 				`before:${name}`,
 				flags,
 			);
 			cleanupFns.push(...hookCleanups);
+			Object.assign(process.env, hookEnv);
 		}
 
 		const exitCode = await spec.run({

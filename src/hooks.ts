@@ -47,11 +47,18 @@ export async function runCommandHook(
 	hookName: `before:${string}` | `after:${string}`,
 	flags: Record<string, unknown>,
 	targets: Set<string> = new Set(),
-): Promise<(() => void | Promise<void>)[]> {
+): Promise<{
+	cleanupFns: (() => void | Promise<void>)[];
+	hookEnv: Record<string, string>;
+}> {
 	const hookFn = config.hooks?.[hookName];
-	if (!hookFn) return [];
+	if (!hookFn) return { cleanupFns: [], hookEnv: {} };
 
-	const { hookCtx, cleanupFns } = buildHookContext(config, flags, targets);
+	const { hookCtx, cleanupFns, hookEnv } = buildHookContext(
+		config,
+		flags,
+		targets,
+	);
 	await hookFn(hookCtx);
-	return cleanupFns;
+	return { cleanupFns, hookEnv };
 }

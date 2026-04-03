@@ -1,7 +1,5 @@
 import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { check, dev, preCommit, sequential } from "./runners/factories.ts";
+import { dirname, resolve } from "node:path";
 import type { CommandTree, ResolvedConfig, TempoConfig } from "./types.ts";
 
 const CONFIG_FILENAME = "tempo.config.ts";
@@ -14,79 +12,6 @@ const CI_ENV_VARS = [
 	"JENKINS_URL",
 	"BUILDKITE",
 ];
-
-// Register virtual modules so config files can `import from "@xevion/tempo"`
-// without a project-level package.json or node_modules.
-// Under Bun: resolve to src/*.ts (native TS support).
-// Under Node: resolve to dist/*.mjs (pre-built JS, since Node can't strip
-// types from files inside node_modules).
-const selfDir = resolve(dirname(fileURLToPath(import.meta.url)));
-const isBun = "Bun" in globalThis;
-
-function resolveExportPath(name: string): string {
-	if (isBun) {
-		// Bun can load .ts directly — prefer src/
-		const srcDir = existsSync(join(selfDir, "index.ts"))
-			? selfDir
-			: resolve(selfDir, "..", "src");
-		return join(srcDir, `${name}.ts`);
-	}
-	// Node — use pre-built dist/*.mjs
-	const distDir = existsSync(join(selfDir, "index.mjs"))
-		? selfDir
-		: resolve(selfDir, "..", "dist");
-	return join(distDir, `${name}.mjs`);
-}
-
-const SUBPATH_NAMES = [
-	"index",
-	"proc",
-	"fmt",
-	"preflight",
-	"targets",
-	"watch",
-	"octocov",
-] as const;
-const subpathExports: Record<string, string> = {};
-for (const name of SUBPATH_NAMES) {
-	const specifier =
-		name === "index" ? "@xevion/tempo" : `@xevion/tempo/${name}`;
-	subpathExports[specifier] = resolveExportPath(name);
-}
-
-if ("Bun" in globalThis) {
-	const { plugin } = await import("bun");
-	plugin({
-		name: "tempo-self-resolve",
-		setup(build) {
-			for (const [specifier, filePath] of Object.entries(subpathExports)) {
-				build.module(specifier, () => ({
-					contents: `export * from "${filePath}";`,
-					loader: "ts",
-				}));
-			}
-		},
-	});
-} else {
-	// Node.js: register a custom resolve hook via module.register()
-	const { register } = await import("node:module");
-	const mapping = Object.fromEntries(
-		Object.entries(subpathExports).map(([spec, path]) => [
-			spec,
-			pathToFileURL(path).href,
-		]),
-	);
-	const loaderCode = `
-		const mapping = ${JSON.stringify(mapping)};
-		export function resolve(specifier, context, nextResolve) {
-			if (mapping[specifier]) {
-				return { url: mapping[specifier], shortCircuit: true };
-			}
-			return nextResolve(specifier, context);
-		}
-	`;
-	register(`data:text/javascript,${encodeURIComponent(loaderCode)}`);
-}
 
 function isBunConfigError(error: unknown): boolean {
 	const msg = error instanceof Error ? error.message : String(error);
@@ -139,7 +64,7 @@ async function importConfig(configPath: string): Promise<TempoConfig> {
 	try {
 		mod = await import(configPath);
 	} catch (error) {
-		if (!isBun && isBunConfigError(error)) {
+		if (!("Bun" in globalThis) && isBunConfigError(error)) {
 			console.error(
 				`\nThis config appears to use Bun-specific imports, but tempo is running under Node.\n\n` +
 					`To fix this, either:\n` +
@@ -159,11 +84,21 @@ async function importConfig(configPath: string): Promise<TempoConfig> {
 		);
 		process.exit(1);
 	}
+
+	if (!config.commands || Object.keys(config.commands).length === 0) {
+		console.error(
+			`Invalid config: "commands" must be a non-empty object in ${configPath}.\n` +
+				`Use runners.check(), runners.dev(), etc. to define commands.\n` +
+				`See https://github.com/xevion/tempo for migration guide.`,
+		);
+		process.exit(1);
+	}
+
 	return config;
 }
 
 async function enforceRuntime(config: TempoConfig): Promise<void> {
-	if (config.runtime === "bun" && !isBun) {
+	if (config.runtime === "bun" && !("Bun" in globalThis)) {
 		const { isBunAvailable, reexecUnderBun } = await import("./runtime.ts");
 		if (isBunAvailable()) {
 			reexecUnderBun();
@@ -177,41 +112,16 @@ async function enforceRuntime(config: TempoConfig): Promise<void> {
 	}
 }
 
-/**
- * Build the resolved command tree from config.
- *
- * - Legacy mode (no `commands` key): auto-populate with built-in runners + custom entries.
- * - Explicit mode (`commands` present): use as-is, merge any `custom` entries not already in commands.
- */
-function resolveCommands(config: TempoConfig): CommandTree {
-	const hasExplicitCommands = config.commands !== undefined;
-
-	if (!hasExplicitCommands) {
-		// Legacy mode — auto-register all built-in runners + custom commands
-		return {
-			check: check(config.check),
-			dev: dev(config.dev),
-			fmt: sequential("format-apply", {
-				description: "Sequential per-subsystem formatting",
-				autoFixFallback: true,
-				flags: config.fmt?.flags,
-			}),
-			lint: sequential("lint", {
-				description: "Sequential per-subsystem linting",
-				flags: config.lint?.flags,
-			}),
-			"pre-commit": preCommit(config.preCommit),
-			...(config.custom ?? {}),
-		};
-	}
-
-	// Explicit mode — commands wins, merge custom entries that don't conflict
-	const tree: CommandTree = { ...config.commands };
-	if (config.custom) {
-		for (const [name, entry] of Object.entries(config.custom)) {
-			if (!(name in tree)) {
-				tree[name] = entry;
-			}
+/** Merge any custom entries not already present in the explicit command tree */
+function mergeCustomCommands(
+	commands: CommandTree,
+	custom?: Record<string, unknown>,
+): CommandTree {
+	if (!custom) return commands;
+	const tree: CommandTree = { ...commands };
+	for (const [name, entry] of Object.entries(custom)) {
+		if (!(name in tree)) {
+			tree[name] = entry as CommandTree[string];
 		}
 	}
 	return tree;
@@ -228,6 +138,7 @@ export async function loadConfig(options?: {
 	const config = await importConfig(configPath);
 	await enforceRuntime(config);
 	const isCI = detectCI(config);
+	const commands = mergeCustomCommands(config.commands, config.custom);
 
 	return {
 		...config,
@@ -253,6 +164,6 @@ export async function loadConfig(options?: {
 		},
 		hooks: config.hooks ?? {},
 		custom: config.custom ?? {},
-		commands: resolveCommands(config),
+		commands,
 	};
 }
