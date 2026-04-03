@@ -1,4 +1,9 @@
-import { FORMAT_APPLY, FORMAT_CHECK, type SubsystemConfig } from "../types.ts";
+import {
+	DEFAULT_AUTOFIX,
+	FORMAT_APPLY,
+	FORMAT_CHECK,
+	type SubsystemConfig,
+} from "../types.ts";
 
 export interface RustPresetOptions {
 	manifestPath?: string;
@@ -40,8 +45,6 @@ export function rust(options?: RustPresetOptions): SubsystemConfig {
 			test: testCmd,
 			build: buildCmd,
 		},
-		autoFix: {
-			[FORMAT_CHECK]: FORMAT_APPLY,
-		},
+		autoFix: DEFAULT_AUTOFIX,
 	};
 }

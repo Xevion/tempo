@@ -8,15 +8,12 @@ import type {
 	CommandFlagDef,
 	CommandSpec,
 	InferFlags,
+	ResolvedConfig,
 	TempoConfig,
 } from "./types.ts";
 
 export type {
-	AutoFixStrategy,
 	CheckConfig,
-	CheckRenderEvent,
-	CIConfig,
-	CollectResult,
 	CommandContext,
 	CommandDef,
 	CommandEntry,
@@ -24,36 +21,46 @@ export type {
 	CommandObject,
 	CommandSpec,
 	CommandTree,
-	CustomCommandEntry,
-	CustomCommandFn,
 	DeclarativePreflight,
 	DevConfig,
 	DevProcess,
-	ExitBehavior,
-	FmtConfig,
 	HookContext,
 	Hooks,
 	InferFlags,
 	InlineCommandSpec,
-	LintConfig,
-	ManagedProcess,
-	PreCommitConfig,
 	PreflightDef,
 	ResolvedConfig,
-	SignalStrategy,
+	RunnerFlagsConfig,
 	SubsystemConfig,
-	TargetResult,
 	TempoConfig,
-	UnmanagedProcess,
 } from "./types.ts";
 
-export { FORMAT_APPLY, FORMAT_CHECK } from "./types.ts";
+export { DEFAULT_AUTOFIX, FORMAT_APPLY, FORMAT_CHECK } from "./types.ts";
 
 /** Type-safe config helper — preserves subsystem name literals for downstream inference */
 export function defineConfig<const TSubsystems extends string>(
 	config: TempoConfig<TSubsystems>,
 ): TempoConfig<TSubsystems> {
 	return config;
+}
+
+/** Stub config for defineCommand self-execute mode where no tempo.config.ts is loaded */
+function createStubConfig(): ResolvedConfig {
+	return {
+		subsystems: {},
+		commands: {},
+		configPath: "",
+		rootDir: process.cwd(),
+		isCI: false,
+		preflights: [],
+		check: { autoFixStrategy: "fix-first" },
+		dev: { exitBehavior: "first-exits" },
+		fmt: {},
+		lint: {},
+		preCommit: {},
+		ci: { inject: {}, groupedOutput: false },
+		hooks: {},
+	};
 }
 
 /**
@@ -74,7 +81,7 @@ export function defineCommand<
 		import("cleye").then(({ cli: cleyeCli }) => {
 			const parsed = cleyeCli({
 				name: spec.name,
-				flags: (spec.flags ?? {}) as unknown as import("cleye").Flags,
+				flags: (spec.flags ?? {}) as import("cleye").Flags,
 				help: spec.description ? { description: spec.description } : undefined,
 			});
 
@@ -82,7 +89,7 @@ export function defineCommand<
 			Promise.resolve(
 				spec.run({
 					group,
-					config: null,
+					config: createStubConfig(),
 					flags: parsed.flags as InferFlags<TFlags>,
 					args: parsed._,
 					passthrough: [],
@@ -99,8 +106,6 @@ export function defineCommand<
 
 	return spec;
 }
-
-export { biome, go, gradle, rust };
 
 /** Preset namespace for convenient access */
 export const presets = { rust, biome, go, gradle } as const;

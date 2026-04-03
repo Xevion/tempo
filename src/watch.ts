@@ -227,6 +227,14 @@ export class BackendWatcher {
 		});
 		this.state = "running";
 		logger.info("server started pid {pid}", { pid: this.server.pid });
+
+		onExit(this.server).then((code) => {
+			if (this.state === "running") {
+				logger.warn("server exited unexpectedly (code {code})", { code });
+				this.server = null;
+				this.state = "idle";
+			}
+		});
 	}
 
 	killSync(): void {

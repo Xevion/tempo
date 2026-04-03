@@ -1,12 +1,8 @@
 import { getLogger } from "@logtape/logtape";
 import { c } from "../fmt.ts";
-import {
-	checkMissingTools,
-	resolveCommandDef,
-	resolveCwd,
-	run,
-	runPiped,
-} from "../proc.ts";
+import { run, runPiped } from "../proc.ts";
+import { resolveCommandDef, resolveCwd } from "../resolve.ts";
+import { checkMissingTools } from "../tools.ts";
 import type { CommandDef, ResolvedConfig } from "../types.ts";
 import { FORMAT_CHECK } from "../types.ts";
 

@@ -27,44 +27,7 @@ export function newestMtime(dir: string, pattern: string): number {
 }
 
 /** Check staleness and optionally regenerate. Returns true if regeneration ran. */
-export function ensureFresh(opts: {
-	label: string;
-	sourceMtime: number;
-	artifactDir: string;
-	artifactGlob: string;
-	reason?: string;
-	regenerate: () => void;
-}): boolean {
-	const artifactMtime = newestMtime(opts.artifactDir, opts.artifactGlob);
-
-	if (artifactMtime >= opts.sourceMtime) {
-		logger.debug("{label} up-to-date, skipped", { label: opts.label });
-		return false;
-	}
-
-	logger.info("regenerating {label}...{reason}", {
-		label: opts.label,
-		reason: opts.reason ? ` (${opts.reason})` : "",
-	});
-
-	const start = Date.now();
-	const result: unknown = opts.regenerate();
-
-	if (result && typeof result === "object" && "then" in result) {
-		throw new Error(
-			`ensureFresh called with async regenerate for "${opts.label}" — use ensureFreshAsync instead`,
-		);
-	}
-
-	logger.info("{label} regenerated ({elapsed}s)", {
-		label: opts.label,
-		elapsed: elapsed(start),
-	});
-	return true;
-}
-
-/** Async variant of ensureFresh for async regenerate functions */
-export async function ensureFreshAsync(opts: {
+export async function ensureFresh(opts: {
 	label: string;
 	sourceMtime: number;
 	artifactDir: string;

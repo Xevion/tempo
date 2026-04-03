@@ -1,4 +1,9 @@
-import { FORMAT_APPLY, FORMAT_CHECK, type SubsystemConfig } from "../types.ts";
+import {
+	DEFAULT_AUTOFIX,
+	FORMAT_APPLY,
+	FORMAT_CHECK,
+	type SubsystemConfig,
+} from "../types.ts";
 
 export interface GoPresetOptions {
 	cwd?: string;
@@ -15,6 +20,7 @@ export function go(options?: GoPresetOptions): SubsystemConfig {
 	const testFlags = race ? "-race -count=1" : "-count=1";
 
 	return {
+		...(options?.cwd && { cwd: options.cwd }),
 		aliases: ["go", "golang"],
 		commands: {
 			[FORMAT_CHECK]: `bash -c 'test -z "$(goimports -l .)"'`,
@@ -23,8 +29,6 @@ export function go(options?: GoPresetOptions): SubsystemConfig {
 			build: `go build -o /dev/null ${buildTarget}`,
 			test: `go test ${testFlags} ./...`,
 		},
-		autoFix: {
-			[FORMAT_CHECK]: FORMAT_APPLY,
-		},
+		autoFix: DEFAULT_AUTOFIX,
 	};
 }

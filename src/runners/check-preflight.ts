@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
-import { ensureFreshAsync, newestMtime } from "../preflight.ts";
-import { run, TempoAbortError } from "../proc.ts";
+import { TempoAbortError } from "../errors.ts";
+import { ensureFresh, newestMtime } from "../preflight.ts";
+import { run } from "../proc.ts";
 import type {
 	DeclarativePreflight,
 	ResolvedConfig,
@@ -25,7 +26,7 @@ export async function runPreflights(
 				resolve(config.rootDir, preflight.sources.dir),
 				preflight.sources.pattern,
 			);
-			await ensureFreshAsync({
+			await ensureFresh({
 				label: preflight.label,
 				sourceMtime,
 				artifactDir: resolve(config.rootDir, preflight.artifacts.dir),

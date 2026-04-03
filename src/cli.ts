@@ -5,14 +5,21 @@ if (shouldReexec()) {
 }
 
 import { resolve } from "node:path";
+import { getLogger } from "@logtape/logtape";
 import { cli, command, type Flags } from "cleye";
 import pkg from "../package.json";
 import { loadConfig } from "./config.ts";
+import {
+	TempoAbortError,
+	TempoConfigError,
+	TempoRunError,
+	TempoTargetError,
+} from "./errors.ts";
 import * as fmt from "./fmt.ts";
 import { exitCodeForSignal } from "./fmt.ts";
 import { runCommandHook } from "./hooks.ts";
 import { setupLogging, teardownLogging } from "./logging/setup.ts";
-import { ProcessGroup, run, runPiped, TempoAbortError } from "./proc.ts";
+import { ProcessGroup, run, runPiped } from "./proc.ts";
 import { initRegistration } from "./register.ts";
 import type {
 	CommandEntry,
@@ -24,15 +31,17 @@ import type {
 	ResolvedConfig,
 } from "./types.ts";
 
+const logger = getLogger(["tempo", "cli"]);
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: argv parsing is inherently branchy
-function extractGlobalFlags(): {
+function extractGlobalFlags(argv?: string[]): {
 	verbosity: number;
 	quiet: boolean;
 	logFile?: string;
 	configPath?: string;
 	cleaned: string[];
 } {
-	const args = process.argv.slice(2);
+	const args = argv ?? process.argv.slice(2);
 	let verbosity = 0;
 	let quiet = false;
 	let logFile: string | undefined;
@@ -62,30 +71,12 @@ function extractGlobalFlags(): {
 	return { verbosity, quiet, logFile, configPath, cleaned };
 }
 
-const globalFlags = extractGlobalFlags();
-const cleanedArgv = globalFlags.cleaned;
-await setupLogging({
-	verbosity: globalFlags.verbosity,
-	quiet: globalFlags.quiet,
-	logFile: globalFlags.logFile,
-});
-
 async function shutdown(code: number): Promise<void> {
 	await teardownLogging();
 	process.exit(code);
 }
 
-ProcessGroup.registerCliSignalHandlers(async (signal) => {
-	await shutdown(exitCodeForSignal(signal));
-});
-
-// Register virtual modules before loading config so `import from "@xevion/tempo"` works
-await initRegistration();
-
-// Load config before building commands so config-defined flags can be spread into cleye
-const config = await loadConfig({ configPath: globalFlags.configPath });
-
-/** Cast config flag records to cleye's Flags type (structurally compatible, TS can't prove it) */
+/** Cast config flag records to cleye's Flags type (CommandFlagDef is structurally a FlagSchema, but cleye's union includes bare FlagType which prevents direct assignment) */
 function cleyeFlags(flags?: Record<string, CommandFlagDef>): Flags {
 	return (flags ?? {}) as unknown as Flags;
 }
@@ -107,12 +98,16 @@ async function resolveSpec(
 			if (spec && typeof spec.run === "function") {
 				return spec;
 			}
-			console.error(
-				`Invalid command at ${entry}: default export must be a defineCommand result`,
+			logger.error(
+				"invalid command at {entry}: default export must be a defineCommand result",
+				{ entry },
 			);
 			return null;
 		} catch (err) {
-			console.error(`Failed to import custom command ${entry}: ${err}`);
+			logger.error("failed to import custom command {entry}: {err}", {
+				entry,
+				err,
+			});
 			return null;
 		}
 	}
@@ -141,7 +136,7 @@ async function executeCommand(
 	const group = new ProcessGroup({ signal: "natural" });
 	const cleanupFns: (() => void | Promise<void>)[] = [];
 	try {
-		if (!spec._managesHooks) {
+		if (!spec.managesHooks) {
 			const { cleanupFns: hookCleanups, hookEnv } = await runCommandHook(
 				config,
 				`before:${name}`,
@@ -162,7 +157,7 @@ async function executeCommand(
 			fmt,
 		});
 
-		if (!spec._managesHooks) {
+		if (!spec.managesHooks) {
 			await runCommandHook(config, `after:${name}`, flags);
 		}
 
@@ -170,6 +165,9 @@ async function executeCommand(
 	} catch (err) {
 		if (err instanceof TempoAbortError) {
 			await shutdown(1);
+		}
+		if (err instanceof TempoRunError) {
+			await shutdown(err.exitCode);
 		}
 		throw err;
 	} finally {
@@ -259,15 +257,48 @@ function extractPassthrough(positionals: any): string[] {
 	return positionals?.passthrough ?? [];
 }
 
-const allCommands = await buildCommands(config.commands, config, cleanedArgv);
+export async function main(argv?: string[]): Promise<void> {
+	const globalFlags = extractGlobalFlags(argv);
+	const cleanedArgv = globalFlags.cleaned;
+	await setupLogging({
+		verbosity: globalFlags.verbosity,
+		quiet: globalFlags.quiet,
+		logFile: globalFlags.logFile,
+	});
 
-await cli(
-	{
-		name: "tempo",
-		version: pkg.version,
-		commands: allCommands,
-		help: { description: "Developer script orchestrator" },
-	},
-	undefined,
-	cleanedArgv,
-);
+	ProcessGroup.registerCliSignalHandlers(async (signal) => {
+		await shutdown(exitCodeForSignal(signal));
+	});
+
+	// Register virtual modules before loading config so `import from "@xevion/tempo"` works
+	await initRegistration();
+
+	// Load config before building commands so config-defined flags can be spread into cleye
+	const config = await loadConfig({ configPath: globalFlags.configPath });
+
+	const allCommands = await buildCommands(config.commands, config, cleanedArgv);
+
+	await cli(
+		{
+			name: "tempo",
+			version: pkg.version,
+			commands: allCommands,
+			help: { description: "Developer script orchestrator" },
+		},
+		undefined,
+		cleanedArgv,
+	);
+}
+
+main().catch(async (err) => {
+	if (err instanceof TempoConfigError || err instanceof TempoTargetError) {
+		logger.error(err.message);
+		await teardownLogging();
+		process.exit(1);
+	}
+	if (err instanceof TempoRunError) {
+		await teardownLogging();
+		process.exit(err.exitCode);
+	}
+	throw err;
+});

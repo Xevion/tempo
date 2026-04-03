@@ -1,12 +1,12 @@
 import { getLogger } from "@logtape/logtape";
+import { run } from "../proc.ts";
 import {
 	appendPassthrough,
-	checkMissingTools,
 	resolveCommandDef,
 	resolveCwd,
-	run,
-} from "../proc.ts";
+} from "../resolve.ts";
 import { resolveAndLogTargets } from "../targets.ts";
+import { checkMissingTools } from "../tools.ts";
 import type { CommandDef, ResolvedConfig } from "../types.ts";
 
 /** Shared runner for sequential command execution (fmt, lint) */

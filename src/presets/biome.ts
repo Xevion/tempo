@@ -1,4 +1,9 @@
-import { FORMAT_APPLY, FORMAT_CHECK, type SubsystemConfig } from "../types.ts";
+import {
+	DEFAULT_AUTOFIX,
+	FORMAT_APPLY,
+	FORMAT_CHECK,
+	type SubsystemConfig,
+} from "../types.ts";
 
 export interface BiomePresetOptions {
 	svelte?: boolean;
@@ -24,10 +29,9 @@ export function biome(options?: BiomePresetOptions): SubsystemConfig {
 	}
 
 	return {
+		...(options?.cwd && { cwd: options.cwd }),
 		aliases: ["biome", "web", "front"],
 		commands,
-		autoFix: {
-			[FORMAT_CHECK]: FORMAT_APPLY,
-		},
+		autoFix: DEFAULT_AUTOFIX,
 	};
 }

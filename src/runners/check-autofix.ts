@@ -1,12 +1,8 @@
 import type { Logger } from "@logtape/logtape";
 import { c, isInteractive } from "../fmt.ts";
-import {
-	checkMissingTools,
-	raceInOrder,
-	resolveCommandDef,
-	resolveCwd,
-	run,
-} from "../proc.ts";
+import { drainAsCompleted, run } from "../proc.ts";
+import { resolveCommandDef, resolveCwd } from "../resolve.ts";
+import { checkMissingTools } from "../tools.ts";
 import type { CollectResult, ResolvedConfig } from "../types.ts";
 import { type CheckEntry, spawnChecks } from "./check-spawn.ts";
 
@@ -102,7 +98,7 @@ export async function runFixOnFail(
 	);
 
 	let hasFailure = false;
-	await raceInOrder(rePromises, reFallbacks, (result) => {
+	await drainAsCompleted(rePromises, reFallbacks, (result) => {
 		results.set(result.name, result);
 		const out = isInteractive(config) ? process.stderr : process.stdout;
 		if (result.exitCode === 0) {

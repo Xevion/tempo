@@ -1,6 +1,12 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import pkg from "../package.json";
+
+/** Derive subpath names from package.json exports — single source of truth */
+const SUBPATH_NAMES = Object.keys(pkg.exports)
+	.filter((k) => k.startsWith("./") || k === ".")
+	.map((k) => (k === "." ? "index" : k.slice(2)));
 
 /**
  * Register virtual modules so config files can `import from "@xevion/tempo"`
@@ -26,15 +32,6 @@ export async function initRegistration(): Promise<void> {
 		return join(distDir, `${name}.mjs`);
 	}
 
-	const SUBPATH_NAMES = [
-		"index",
-		"proc",
-		"fmt",
-		"preflight",
-		"targets",
-		"watch",
-		"octocov",
-	] as const;
 	const subpathExports: Record<string, string> = {};
 	for (const name of SUBPATH_NAMES) {
 		const specifier =

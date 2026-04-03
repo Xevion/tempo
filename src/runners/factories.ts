@@ -5,18 +5,11 @@ import type {
 	DevProcess,
 	ExitBehavior,
 	InlineCommandSpec,
-	ResolvedConfig,
 } from "../types.ts";
 import { runCheck } from "./check.ts";
 import { runDev } from "./dev.ts";
 import { runPreCommit } from "./pre-commit.ts";
 import { runSequential } from "./sequential.ts";
-
-/** Require config to be present (runner factories always run with a loaded config) */
-function requireConfig(config: ResolvedConfig | null): ResolvedConfig {
-	if (!config) throw new Error("Runner requires a loaded config");
-	return config;
-}
 
 export interface CheckRunnerOptions {
 	autoFixStrategy?: AutoFixStrategy;
@@ -65,9 +58,9 @@ export function check(opts?: CheckRunnerOptions): InlineCommandSpec {
 			},
 			...userFlags,
 		},
-		_managesHooks: true,
+		managesHooks: true,
 		run: async (ctx) => {
-			const config = requireConfig(ctx.config);
+			const config = ctx.config;
 			const mergedConfig = {
 				...config,
 				check: { ...config.check, ...checkOpts },
@@ -88,7 +81,7 @@ export function sequential(
 		parameters: ["[targets...]", "--", "[passthrough...]"],
 		flags: { ...opts?.flags },
 		run: async (ctx) =>
-			runSequential(requireConfig(ctx.config), ctx.args, ctx.passthrough, {
+			runSequential(ctx.config, ctx.args, ctx.passthrough, {
 				commandKey,
 				loggerName: commandKey,
 				autoFixFallback: opts?.autoFixFallback,
@@ -103,9 +96,9 @@ export function dev(opts?: DevRunnerOptions): InlineCommandSpec {
 		description: "Multi-process dev server manager",
 		parameters: ["[targets...]", "--", "[passthrough...]"],
 		flags: { ...userFlags },
-		_managesHooks: true,
+		managesHooks: true,
 		run: async (ctx) => {
-			const config = requireConfig(ctx.config);
+			const config = ctx.config;
 			const mergedConfig = {
 				...config,
 				dev: { ...config.dev, ...devOpts },
@@ -120,7 +113,7 @@ export function preCommit(opts?: PreCommitRunnerOptions): InlineCommandSpec {
 	return {
 		description: "Staged-file auto-formatter with partial staging detection",
 		flags: { ...opts?.flags },
-		run: async (ctx) => runPreCommit(requireConfig(ctx.config), ctx.flags),
+		run: async (ctx) => runPreCommit(ctx.config, ctx.flags),
 	};
 }
 

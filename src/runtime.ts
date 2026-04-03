@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { hasTool } from "./proc.ts";
+import { hasTool } from "./tools.ts";
 
 const BUN_LOCKFILES = ["bun.lockb", "bun.lock"];
 const REEXEC_ENV = "TEMPO_REEXEC";

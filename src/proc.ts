@@ -1,12 +1,17 @@
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
-import { resolve } from "node:path";
-import { exitCodeForSignal, RESET_TERMINAL } from "./fmt.ts";
-import type {
-	CollectResult,
-	CommandDef,
-	CommandObject,
-	SignalStrategy,
-} from "./types.ts";
+import { TempoRunError } from "./errors.ts";
+import { elapsed, exitCodeForSignal, RESET_TERMINAL } from "./fmt.ts";
+import type { CollectResult, SignalStrategy } from "./types.ts";
+
+// Re-export for backward compatibility with @xevion/tempo/proc consumers
+export { TempoAbortError, TempoRunError } from "./errors.ts";
+export { appendPassthrough, resolveCommandDef, resolveCwd } from "./resolve.ts";
+export {
+	checkMissingTools,
+	collectRequires,
+	getMissingTools,
+	hasTool,
+} from "./tools.ts";
 
 /** Promise that resolves with exit code when a ChildProcess exits */
 export function onExit(child: ChildProcess): Promise<number> {
@@ -65,14 +70,6 @@ export async function gracefulKill(
 	const cancel = escalateKill(proc, timeout);
 	await onExit(proc);
 	cancel();
-}
-
-/** Thrown by ctx.fail() in hooks/preflights to abort with a message */
-export class TempoAbortError extends Error {
-	constructor(message?: string) {
-		super(message);
-		this.name = "TempoAbortError";
-	}
 }
 
 /** Convert a command to spawn args. Strings run via sh -c, arrays exec directly. */
@@ -326,7 +323,7 @@ export class ProcessGroup {
 	}
 }
 
-/** Synchronous execution with inherited stdio — exits process on failure */
+/** Synchronous execution with inherited stdio — throws TempoRunError on failure */
 export function run(
 	cmd: string | string[],
 	options?: { cwd?: string; env?: Record<string, string> },
@@ -338,7 +335,7 @@ export function run(
 		stdio: "inherit",
 	});
 	if (result.status !== 0) {
-		process.exit(result.status ?? 1);
+		throw new TempoRunError(result.status ?? 1);
 	}
 }
 
@@ -399,19 +396,20 @@ export async function spawnCollect(
 	if (timedOut) {
 		stderr = `killed after ${options?.timeout}s timeout\n${stderr}`;
 	}
-	const elapsedMs = ((Date.now() - startTime) / 1000).toFixed(1);
 
 	return {
 		name: options?.name ?? args.join(" "),
 		stdout,
 		stderr,
 		exitCode: timedOut ? 1 : exitCode,
-		elapsed: elapsedMs,
+		elapsed: elapsed(startTime),
 	};
 }
 
-/** Parallel execution with completion-order callbacks */
-export async function raceInOrder<T extends { name: string; stderr: string }>(
+/** Drain all promises, calling back as each completes */
+export async function drainAsCompleted<
+	T extends { name: string; stderr: string },
+>(
 	promises: Promise<T>[],
 	fallbacks: T[],
 	onResult: (result: T) => void,
@@ -443,86 +441,4 @@ export async function raceInOrder<T extends { name: string; stderr: string }>(
 		remaining.delete(result.promise);
 		onResult(result.val);
 	}
-}
-
-const toolCache = new Map<string, boolean>();
-
-export function hasTool(cmd: string): boolean {
-	const cached = toolCache.get(cmd);
-	if (cached !== undefined) return cached;
-	try {
-		const result = spawnSync("which", [cmd], {
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		const found = result.status === 0;
-		toolCache.set(cmd, found);
-		return found;
-	} catch {
-		toolCache.set(cmd, false);
-		return false;
-	}
-}
-
-/** Collect requires from subsystem + command definition, deduped */
-export function collectRequires(
-	subsystemRequires: string[] | undefined,
-	def: import("./types").CommandDef,
-): string[] {
-	const cmdRequires =
-		typeof def === "object" && !Array.isArray(def) ? def.requires : undefined;
-	if (
-		(subsystemRequires?.length ?? 0) === 0 &&
-		(cmdRequires?.length ?? 0) === 0
-	)
-		return [];
-	return [...new Set([...(subsystemRequires ?? []), ...(cmdRequires ?? [])])];
-}
-
-/** Return tool names from a requires list that are not on PATH */
-export function getMissingTools(requires: string[]): string[] {
-	return requires.filter((tool) => !hasTool(tool));
-}
-
-/** Returns missing tool names if any required tools are absent, null if all present */
-export function checkMissingTools(
-	subsystemRequires: string[] | undefined,
-	def: CommandDef,
-): string[] | null {
-	const requires = collectRequires(subsystemRequires, def);
-	if (requires.length === 0) return null;
-	const missing = getMissingTools(requires);
-	return missing.length > 0 ? missing : null;
-}
-
-/** Resolve a CommandDef to a spawnable cmd array and its options */
-export function resolveCommandDef(def: CommandDef): {
-	cmd: string[];
-	opts: Partial<CommandObject>;
-} {
-	if (typeof def === "string") return { cmd: resolveCmd(def), opts: {} };
-	if (Array.isArray(def)) return { cmd: def, opts: {} };
-	return { cmd: resolveCmd(def.cmd), opts: def };
-}
-
-/** Resolve cwd from command-level, subsystem-level, or root fallback */
-export function resolveCwd(
-	rootDir: string,
-	cmdCwd?: string,
-	subsystemCwd?: string,
-): string {
-	if (cmdCwd) return resolve(rootDir, cmdCwd);
-	if (subsystemCwd) return resolve(rootDir, subsystemCwd);
-	return rootDir;
-}
-
-/** Append passthrough args, handling sh -c commands correctly */
-export function appendPassthrough(
-	cmd: string[],
-	passthrough: string[],
-): string[] {
-	if (passthrough.length === 0) return cmd;
-	if (cmd[0] === "sh" && cmd[1] === "-c") {
-		return ["sh", "-c", `${cmd[2]} ${passthrough.join(" ")}`];
-	}
-	return [...cmd, ...passthrough];
 }

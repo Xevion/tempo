@@ -29,10 +29,10 @@ import { defineConfig, presets } from "@xevion/tempo";
 
 export default defineConfig({
   subsystems: { /* required, at least one */ },
+  commands: { /* required, at least one */ },
   preflights: [ /* optional */ ],
   check: { /* optional */ },
   dev: { /* optional */ },
-  custom: { /* optional */ },
   ci: { /* optional */ },
   hooks: { /* optional */ },
 });
@@ -382,7 +382,7 @@ For advanced use cases, import primitives directly:
 
 | Import | Provides |
 |--------|----------|
-| `@xevion/tempo/proc` | `ProcessGroup`, `run`, `runPiped`, `spawnCollect`, `raceInOrder` |
+| `@xevion/tempo/proc` | `ProcessGroup`, `run`, `runPiped`, `spawnCollect`, `drainAsCompleted` |
 | `@xevion/tempo/fmt` | Theme colors (ansis/catppuccin), `formatDuration`, `formatTokens`, `termWidth`, `wordWrap`, `parseArgs`, TTY detection |
 | `@xevion/tempo/preflight` | `newestMtime`, `ensureFresh` |
 | `@xevion/tempo/targets` | `resolveTargets`, `isAll`, `targetLabel` |

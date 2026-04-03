@@ -1,4 +1,5 @@
 import type { Logger } from "@logtape/logtape";
+import { TempoTargetError } from "./errors.ts";
 import type { SubsystemConfig, TargetResult } from "./types.ts";
 
 /** Resolve CLI target strings to subsystem names via alias lookup */
@@ -46,10 +47,9 @@ export function resolveTargets<T extends string>(
 					return `  ${name}${aliasList}`;
 				})
 				.join("\n");
-			console.error(
+			throw new TempoTargetError(
 				`Unknown target: "${token}"\n\nValid targets:\n${validTargets}`,
 			);
-			process.exit(1);
 		}
 		resolved.add(match);
 	}

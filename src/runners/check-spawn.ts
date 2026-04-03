@@ -1,4 +1,5 @@
-import { resolveCommandDef, resolveCwd, spawnCollect } from "../proc.ts";
+import { spawnCollect } from "../proc.ts";
+import { resolveCommandDef, resolveCwd } from "../resolve.ts";
 import type { CollectResult, CommandDef, ResolvedConfig } from "../types.ts";
 
 export interface CheckEntry {
@@ -8,7 +9,7 @@ export interface CheckEntry {
 	def: CommandDef;
 }
 
-/** Spawn all checks in parallel, returning promises and fallbacks for raceInOrder */
+/** Spawn all checks in parallel, returning promises and fallbacks for drainAsCompleted */
 export function spawnChecks(
 	checks: CheckEntry[],
 	config: ResolvedConfig,

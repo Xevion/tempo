@@ -1,5 +1,5 @@
 import { CLEAR_LINE, c, elapsed, isInteractive } from "../fmt.ts";
-import { resolveCommandDef } from "../proc.ts";
+import { resolveCommandDef } from "../resolve.ts";
 import type {
 	CheckRenderEvent,
 	CollectResult,

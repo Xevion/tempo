@@ -1,5 +1,5 @@
 import { getLogger } from "@logtape/logtape";
-import { TempoAbortError } from "./proc.ts";
+import { TempoAbortError } from "./errors.ts";
 import type { HookContext, ResolvedConfig, TempoLogger } from "./types.ts";
 
 /** Build a HookContext with associated cleanup list and env overrides */

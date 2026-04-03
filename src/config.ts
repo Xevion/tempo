@@ -1,9 +1,12 @@
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import type { CommandTree, ResolvedConfig, TempoConfig } from "./types.ts";
+import { getLogger } from "@logtape/logtape";
+import { TempoConfigError } from "./errors.ts";
+import type { ResolvedConfig, TempoConfig } from "./types.ts";
 import { FORMAT_CHECK } from "./types.ts";
 
 const CONFIG_FILENAME = "tempo.config.ts";
+const logger = getLogger(["tempo", "config"]);
 
 const CI_ENV_VARS = [
 	"CI",
@@ -45,17 +48,15 @@ function resolveConfigPath(cwd: string, explicitPath?: string): string {
 	if (explicitPath) {
 		const configPath = resolve(cwd, explicitPath);
 		if (!existsSync(configPath)) {
-			console.error(`Config file not found: ${configPath}`);
-			process.exit(1);
+			throw new TempoConfigError(`Config file not found: ${configPath}`);
 		}
 		return configPath;
 	}
 	const discovered = discoverConfigPath(cwd);
 	if (!discovered) {
-		console.error(
+		throw new TempoConfigError(
 			`Could not find ${CONFIG_FILENAME}. Create one in your project root or use --config <path>.`,
 		);
-		process.exit(1);
 	}
 	return discovered;
 }
@@ -66,33 +67,30 @@ async function importConfig(configPath: string): Promise<TempoConfig> {
 		mod = await import(configPath);
 	} catch (error) {
 		if (!("Bun" in globalThis) && isBunConfigError(error)) {
-			console.error(
-				`\nThis config appears to use Bun-specific imports, but tempo is running under Node.\n\n` +
+			throw new TempoConfigError(
+				`This config appears to use Bun-specific imports, but tempo is running under Node.\n\n` +
 					`To fix this, either:\n` +
 					`  1. Add a bun.lock file to your project (run: bun install)\n` +
 					`  2. Run directly with Bun: bun run tempo check\n` +
-					`  3. Use bunx --bun: bunx --bun tempo check\n`,
+					`  3. Use bunx --bun: bunx --bun tempo check`,
 			);
-			process.exit(1);
 		}
 		throw error;
 	}
 	const config = (mod.default ?? mod) as TempoConfig;
 
 	if (!config.subsystems || Object.keys(config.subsystems).length === 0) {
-		console.error(
+		throw new TempoConfigError(
 			`Invalid config: "subsystems" must be a non-empty object in ${configPath}`,
 		);
-		process.exit(1);
 	}
 
 	if (!config.commands || Object.keys(config.commands).length === 0) {
-		console.error(
+		throw new TempoConfigError(
 			`Invalid config: "commands" must be a non-empty object in ${configPath}.\n` +
 				`Use runners.check(), runners.dev(), etc. to define commands.\n` +
 				`See https://github.com/xevion/tempo for migration guide.`,
 		);
-		process.exit(1);
 	}
 
 	return config;
@@ -104,16 +102,16 @@ function validateFormatProtocol(config: TempoConfig): void {
 	for (const [name, sub] of Object.entries(config.subsystems)) {
 		if (!sub.autoFix?.[FORMAT_CHECK]) continue;
 		if (!sub.commands?.[FORMAT_CHECK]) {
-			console.warn(
-				`Warning: subsystem '${name}' has autoFix['${FORMAT_CHECK}'] but no '${FORMAT_CHECK}' command. ` +
-					`Pre-commit will skip this subsystem.`,
+			logger.warn(
+				"subsystem '{name}' has autoFix['{key}'] but no '{key}' command — pre-commit will skip this subsystem",
+				{ name, key: FORMAT_CHECK },
 			);
 		}
 		const fixTarget = sub.autoFix[FORMAT_CHECK];
 		if (fixTarget && !sub.commands?.[fixTarget]) {
-			console.warn(
-				`Warning: subsystem '${name}' autoFix maps '${FORMAT_CHECK}' → '${fixTarget}', ` +
-					`but '${fixTarget}' command does not exist.`,
+			logger.warn(
+				"subsystem '{name}' autoFix maps '{key}' → '{target}', but '{target}' command does not exist",
+				{ name, key: FORMAT_CHECK, target: fixTarget },
 			);
 		}
 	}
@@ -125,28 +123,12 @@ async function enforceRuntime(config: TempoConfig): Promise<void> {
 		if (isBunAvailable()) {
 			reexecUnderBun();
 		} else {
-			console.error(
+			throw new TempoConfigError(
 				`Config specifies runtime: "bun" but bun is not installed.\n` +
 					`Install Bun: https://bun.sh/docs/installation`,
 			);
-			process.exit(1);
 		}
 	}
-}
-
-/** Merge any custom entries not already present in the explicit command tree */
-function mergeCustomCommands(
-	commands: CommandTree,
-	custom?: Record<string, unknown>,
-): CommandTree {
-	if (!custom) return commands;
-	const tree: CommandTree = { ...commands };
-	for (const [name, entry] of Object.entries(custom)) {
-		if (!(name in tree)) {
-			tree[name] = entry as CommandTree[string];
-		}
-	}
-	return tree;
 }
 
 /** Load and resolve the tempo config from a file path or by auto-discovery */
@@ -161,7 +143,6 @@ export async function loadConfig(options?: {
 	validateFormatProtocol(config);
 	await enforceRuntime(config);
 	const isCI = detectCI(config);
-	const commands = mergeCustomCommands(config.commands, config.custom);
 
 	return {
 		...config,
@@ -186,7 +167,6 @@ export async function loadConfig(options?: {
 			...config.ci,
 		},
 		hooks: config.hooks ?? {},
-		custom: config.custom ?? {},
-		commands,
+		commands: config.commands,
 	};
 }

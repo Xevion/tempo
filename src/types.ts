@@ -2,6 +2,11 @@
 export const FORMAT_CHECK = "format-check" as const;
 export const FORMAT_APPLY = "format-apply" as const;
 
+/** Default autoFix mapping used by all built-in presets */
+export const DEFAULT_AUTOFIX = {
+	[FORMAT_CHECK]: FORMAT_APPLY,
+} as const;
+
 /** String shorthand, array, or full object command definition */
 export type CommandDef = string | string[] | CommandObject;
 
@@ -107,15 +112,8 @@ export type DevProcess = UnmanagedProcess | ManagedProcess;
 
 export type ExitBehavior = "first-exits" | "all-exit";
 
-export interface FmtConfig {
-	flags?: Record<string, CommandFlagDef>;
-}
-
-export interface LintConfig {
-	flags?: Record<string, CommandFlagDef>;
-}
-
-export interface PreCommitConfig {
+/** Shared config shape for runners that only accept custom flags */
+export interface RunnerFlagsConfig {
 	flags?: Record<string, CommandFlagDef>;
 }
 
@@ -191,11 +189,9 @@ export interface TempoConfig<TSubsystems extends string = string> {
 	commands: CommandTree;
 	check?: CheckConfig<TSubsystems>;
 	dev?: DevConfig<TSubsystems>;
-	fmt?: FmtConfig;
-	lint?: LintConfig;
-	preCommit?: PreCommitConfig;
-	/** @deprecated Use `commands` instead. Custom entries are merged into `commands` during resolution. */
-	custom?: Record<string, CustomCommandEntry>;
+	fmt?: RunnerFlagsConfig;
+	lint?: RunnerFlagsConfig;
+	preCommit?: RunnerFlagsConfig;
 	ci?: CIConfig;
 	hooks?: Hooks<TSubsystems>;
 	/** Preferred runtime. When set and mismatched, tempo re-execs under the correct runtime. */
@@ -227,8 +223,8 @@ export interface CommandFlagDef {
 	type: BooleanConstructor | StringConstructor | NumberConstructor;
 	alias?: string;
 	description?: string;
+	placeholder?: string;
 	default?: boolean | string | number;
-	[key: string]: unknown;
 }
 
 export interface CommandSpec<
@@ -255,17 +251,19 @@ export type InlineCommandSpec<
 	parameters?: string[];
 	/** Command alias(es) for cleye, e.g. "format" for the fmt command */
 	alias?: string | string[];
-	/** When true, the command dispatches its own before:/after: hooks internally (skip generic dispatch) */
-	_managesHooks?: boolean;
+	/** When true, the command manages its own before:/after: hook lifecycle internally (skip generic dispatch) */
+	managesHooks?: boolean;
 };
 
-/** Bare function for inline custom commands — receives CommandContext with no flags */
-export type CustomCommandFn = (
-	ctx: CommandContext<Record<never, CommandFlagDef>>,
-) => Promise<number> | number;
-
-/** A custom command entry: file path, bare function, or inline CommandSpec */
-export type CustomCommandEntry = string | CustomCommandFn | InlineCommandSpec;
+/** A command entry: file path, bare function, or inline CommandSpec */
+export type CommandEntry =
+	| InlineCommandSpec
+	| ((
+			ctx: CommandContext<Record<never, CommandFlagDef>>,
+	  ) => Promise<number> | number)
+	| string
+	| false
+	| CommandTree;
 
 export interface CommandContext<
 	TFlags extends Record<string, CommandFlagDef> = Record<
@@ -274,7 +272,7 @@ export interface CommandContext<
 	>,
 > {
 	group: import("./proc").ProcessGroup;
-	config: ResolvedConfig | null;
+	config: ResolvedConfig;
 	flags: InferFlags<TFlags>;
 	args: string[];
 	passthrough: string[];
@@ -305,18 +303,12 @@ export interface TargetResult<T extends string> {
  * A command entry in the unified command tree.
  *
  * Discrimination:
- * - `typeof entry === 'function'` → CustomCommandFn (bare function)
+ * - `typeof entry === 'function'` → bare function
  * - `typeof entry === 'string'` → file path for dynamic import
  * - `entry === false` → explicitly disabled
  * - `typeof entry === 'object' && 'run' in entry` → InlineCommandSpec
  * - `typeof entry === 'object' && !('run' in entry)` → CommandTree (nested group)
  */
-export type CommandEntry =
-	| InlineCommandSpec
-	| CustomCommandFn
-	| string
-	| false
-	| CommandTree;
 
 /** Recursive record of command entries — supports nested command groups. */
 export interface CommandTree {

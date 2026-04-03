@@ -1,13 +1,11 @@
 import { getLogger } from "@logtape/logtape";
+import { TempoAbortError } from "../errors.ts";
 import { elapsed, isInteractive } from "../fmt.ts";
 import { buildHookContext, runCleanups, tryHook } from "../hooks.ts";
-import {
-	checkMissingTools,
-	raceInOrder,
-	resolveCommandDef,
-	TempoAbortError,
-} from "../proc.ts";
+import { drainAsCompleted } from "../proc.ts";
+import { resolveCommandDef } from "../resolve.ts";
 import { resolveAndLogTargets } from "../targets.ts";
+import { checkMissingTools } from "../tools.ts";
 import type {
 	CheckInfo,
 	CollectResult,
@@ -117,7 +115,7 @@ async function collectResults(
 	let hasFailure = false;
 	const renderer = config.check?.renderer;
 
-	await raceInOrder(promises, fallbacks, (result) => {
+	await drainAsCompleted(promises, fallbacks, (result) => {
 		spinner.removeCheck(result.name);
 		results.set(result.name, result);
 
