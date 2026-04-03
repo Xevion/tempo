@@ -114,6 +114,7 @@ function formatRecord(record: LogRecord): string {
 export function getColoredStderrSink(): Sink {
 	const sink: Sink & Disposable = Object.assign(
 		(record: LogRecord) => {
+			if (process.stderr.isTTY) process.stderr.write("\r\x1b[K");
 			process.stderr.write(formatRecord(record));
 		},
 		{

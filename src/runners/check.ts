@@ -98,8 +98,10 @@ function renderResult(
 	const { opts } = resolveCommandDef(check.def);
 	const hint = opts.hint ?? checkOpts?.hint;
 	const warnCode = opts.warnIfExitCode ?? checkOpts?.warnIfExitCode;
+	const toTTY = isStderrTTY && !config.isCI;
+	const out = toTTY ? process.stderr : process.stdout;
 
-	if (isStderrTTY && !config.isCI) {
+	if (toTTY) {
 		process.stderr.write("\r\x1b[K");
 	}
 
@@ -108,21 +110,21 @@ function renderResult(
 	}
 
 	if (result.exitCode === 0) {
-		process.stdout.write(
+		out.write(
 			`${c.catGreen("✓")} ${result.name} ${c.overlay0(`(${result.elapsed}s)`)}\n`,
 		);
 	} else if (warnCode !== undefined && result.exitCode === warnCode) {
-		process.stdout.write(
+		out.write(
 			`${c.catYellow("⚠")} ${result.name} ${c.overlay0(`(${result.elapsed}s)`)}\n`,
 		);
 	} else {
-		process.stdout.write(
+		out.write(
 			`${c.catRed("✗")} ${result.name} ${c.overlay0(`(${result.elapsed}s)`)}\n`,
 		);
 		if (hint) {
-			process.stdout.write(`  ${c.overlay0("hint:")} ${hint}\n`);
+			out.write(`  ${c.overlay0("hint:")} ${hint}\n`);
 		} else {
-			if (result.stdout.trim()) process.stdout.write(result.stdout);
+			if (result.stdout.trim()) out.write(result.stdout);
 			if (result.stderr.trim()) process.stderr.write(result.stderr);
 		}
 	}
@@ -155,9 +157,37 @@ export async function runCheck(
 	} = buildHookContext(config, flags, targetResult.subsystems as Set<string>);
 	const { logger: tempoLogger, fail } = baseHookCtx;
 
+	const startTime = Date.now();
+	const renderer = config.check?.renderer;
+	let spinnerStatus = "preflight";
+	let spinnerPhase: "preflight" | "checks" = "preflight";
+	const remaining = new Set<string>();
+	let spinnerInterval: ReturnType<typeof setInterval> | undefined;
+
+	const stopSpinner = () => {
+		if (spinnerInterval) {
+			clearInterval(spinnerInterval);
+			spinnerInterval = undefined;
+			if (isStderrTTY && !config.isCI) process.stderr.write("\r\x1b[K");
+		}
+	};
+
+	if (!renderer && isStderrTTY && !config.isCI) {
+		spinnerInterval = setInterval(() => {
+			const el = elapsed(startTime);
+			if (spinnerPhase === "preflight") {
+				process.stderr.write(`\r\x1b[K${c.overlay0(`${el}s`)} ${c.overlay0(spinnerStatus)}`);
+			} else if (remaining.size > 0) {
+				const names = [...remaining].join(", ");
+				process.stderr.write(`\r\x1b[K${c.overlay0(`${el}s`)} ${c.overlay0(names)}`);
+			}
+		}, 100);
+	}
+
 	// Run preflights
 	for (const preflight of config.preflights ?? []) {
 		if (isDeclarativePreflight(preflight)) {
+			spinnerStatus = preflight.label;
 			const sourceMtime = newestMtime(
 				resolve(config.rootDir, preflight.sources.dir),
 				preflight.sources.pattern,
@@ -180,7 +210,10 @@ export async function runCheck(
 			try {
 				await preflight({ logger: tempoLogger, fail });
 			} catch (e) {
-				if (e instanceof TempoAbortError) return 1;
+				if (e instanceof TempoAbortError) {
+					stopSpinner();
+					return 1;
+				}
 				throw e;
 			}
 		}
@@ -219,6 +252,7 @@ export async function runCheck(
 	}
 
 	if (checks.length === 0) {
+		stopSpinner();
 		logger.info("no checks to run");
 		return 0;
 	}
@@ -228,13 +262,20 @@ export async function runCheck(
 		try {
 			await config.hooks["before:check"](baseHookCtx);
 		} catch (e) {
-			if (e instanceof TempoAbortError) return 1;
+			if (e instanceof TempoAbortError) {
+				stopSpinner();
+				return 1;
+			}
 			throw e;
 		}
 	}
 
 	// CI env injection
 	const envOverrides: Record<string, string> = { ...hookEnv };
+	if (isStderrTTY && !config.isCI) {
+		envOverrides.FORCE_COLOR = "1";
+		envOverrides.CLICOLOR_FORCE = "1";
+	}
 	if (config.isCI && config.ci?.inject) {
 		Object.assign(envOverrides, config.ci.inject);
 	}
@@ -260,8 +301,9 @@ export async function runCheck(
 		}
 	}
 
-	// Spawn all checks in parallel
-	const startTime = Date.now();
+	// Populate remaining checks and switch spinner to checks phase
+	for (const ch of checks) remaining.add(ch.name);
+	spinnerPhase = "checks";
 
 	// Run before:check:each hooks
 	for (const check of checks) {
@@ -283,22 +325,6 @@ export async function runCheck(
 		envOverrides,
 		startTime,
 	);
-
-	const renderer = config.check?.renderer;
-
-	// TUI spinner (only when no custom renderer)
-	let spinnerInterval: ReturnType<typeof setInterval> | undefined;
-	const remaining = new Set(checks.map((ch) => ch.name));
-
-	if (!renderer && isStderrTTY && !config.isCI) {
-		spinnerInterval = setInterval(() => {
-			const el = elapsed(startTime);
-			const names = [...remaining].join(", ");
-			process.stderr.write(
-				`\r\x1b[K${c.overlay0(`${el}s`)} ${c.overlay0(names)}`,
-			);
-		}, 100);
-	}
 
 	// Collect results
 	const results = new Map<string, CollectResult>();
@@ -333,7 +359,7 @@ export async function runCheck(
 		}
 	});
 
-	if (spinnerInterval) clearInterval(spinnerInterval);
+	stopSpinner();
 
 	// Auto-fix: fix-on-fail strategy
 	if (
@@ -382,13 +408,14 @@ export async function runCheck(
 			hasFailure = false;
 			await raceInOrder(rePromises, reFallbacks, (result) => {
 				results.set(result.name, result);
+				const out = isStderrTTY && !config.isCI ? process.stderr : process.stdout;
 				if (result.exitCode === 0) {
-					process.stdout.write(
+					out.write(
 						`${c.catGreen("✓")} ${result.name} ${c.overlay0("(fixed)")} ${c.overlay0(`(${result.elapsed}s)`)}\n`,
 					);
 				} else {
 					hasFailure = true;
-					process.stdout.write(
+					out.write(
 						`${c.catRed("✗")} ${result.name} ${c.overlay0("(still failing)")} ${c.overlay0(`(${result.elapsed}s)`)}\n`,
 					);
 				}
@@ -417,14 +444,17 @@ export async function runCheck(
 
 	if (renderer) {
 		renderer({ type: "summary", results });
-	} else if (hasFailure) {
-		process.stdout.write(
-			`\n${c.bold(c.catRed(`${passed}/${total} passed`))} ${c.overlay0(`(${totalElapsed}s)`)}\n`,
-		);
 	} else {
-		process.stdout.write(
-			`\n${c.bold(c.catGreen(`${total}/${total} passed`))} ${c.overlay0(`(${totalElapsed}s)`)}\n`,
-		);
+		const out = isStderrTTY && !config.isCI ? process.stderr : process.stdout;
+		if (hasFailure) {
+			out.write(
+				`\n${c.bold(c.catRed(`${passed}/${total} passed`))} ${c.overlay0(`(${totalElapsed}s)`)}\n`,
+			);
+		} else {
+			out.write(
+				`\n${c.bold(c.catGreen(`${total}/${total} passed`))} ${c.overlay0(`(${totalElapsed}s)`)}\n`,
+			);
+		}
 	}
 
 	return hasFailure ? 1 : 0;
