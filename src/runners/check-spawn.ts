@@ -20,7 +20,8 @@ export function spawnChecks(
 
 	for (const check of checks) {
 		const { cmd, opts } = resolveCommandDef(check.def);
-		const sub = config.subsystems[check.subsystem]!;
+		const sub = config.subsystems[check.subsystem];
+		if (!sub) continue;
 		const checkOpts =
 			config.check?.options?.[check.name as `${string}:${string}`];
 

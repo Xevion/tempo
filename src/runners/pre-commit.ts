@@ -93,7 +93,7 @@ export async function runPreCommit(
 			continue;
 		}
 
-		const fixDef = sub.commands[fixAction]!;
+		const fixDef = sub.commands[fixAction];
 		const { cmd: fixCmd } = resolveCommandDef(fixDef);
 
 		// Check for partial staging conflicts

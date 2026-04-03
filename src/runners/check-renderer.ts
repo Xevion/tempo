@@ -1,4 +1,4 @@
-import { c, elapsed, isStderrTTY } from "../fmt.ts";
+import { CLEAR_LINE, c, elapsed, isInteractive } from "../fmt.ts";
 import { resolveCommandDef } from "../proc.ts";
 import type {
 	CheckRenderEvent,
@@ -33,11 +33,11 @@ export function renderResult(
 	const { opts } = resolveCommandDef(def);
 	const hint = opts.hint ?? checkOpts?.hint;
 	const warnCode = opts.warnIfExitCode ?? checkOpts?.warnIfExitCode;
-	const toTTY = isStderrTTY && !config.isCI;
+	const toTTY = isInteractive(config);
 	const out = toTTY ? process.stderr : process.stdout;
 
 	if (toTTY) {
-		process.stderr.write("\r\x1b[K");
+		process.stderr.write(CLEAR_LINE);
 	}
 
 	if (config.isCI && config.ci?.groupedOutput) {
@@ -84,7 +84,7 @@ export function renderSummary(
 
 	const total = results.size;
 	const passed = [...results.values()].filter((r) => r.exitCode === 0).length;
-	const out = isStderrTTY && !config.isCI ? process.stderr : process.stdout;
+	const out = isInteractive(config) ? process.stderr : process.stdout;
 
 	if (hasFailure) {
 		out.write(
@@ -111,7 +111,7 @@ export function createSpinner(
 	checkNames: string[],
 ): Spinner {
 	const renderer = config.check?.renderer;
-	if (renderer || !isStderrTTY || config.isCI) {
+	if (renderer || !isInteractive(config)) {
 		// No-op spinner for non-interactive or custom renderer
 		return {
 			setPhase() {},
@@ -129,12 +129,12 @@ export function createSpinner(
 		const el = elapsed(startTime);
 		if (phase === "preflight") {
 			process.stderr.write(
-				`\r\x1b[K${c.overlay0(`${el}s`)} ${c.overlay0(status)}`,
+				`${CLEAR_LINE}${c.overlay0(`${el}s`)} ${c.overlay0(status)}`,
 			);
 		} else if (remaining.size > 0) {
 			const names = [...remaining].join(", ");
 			process.stderr.write(
-				`\r\x1b[K${c.overlay0(`${el}s`)} ${c.overlay0(names)}`,
+				`${CLEAR_LINE}${c.overlay0(`${el}s`)} ${c.overlay0(names)}`,
 			);
 		}
 	}, 100);
@@ -151,7 +151,7 @@ export function createSpinner(
 		},
 		stop() {
 			clearInterval(interval);
-			if (isStderrTTY && !config.isCI) process.stderr.write("\r\x1b[K");
+			if (isInteractive(config)) process.stderr.write(CLEAR_LINE);
 		},
 	};
 }

@@ -1,17 +1,6 @@
 {
 	"$schema": "https://unpkg.com/knip@6/schema.json",
-	"entry": [
-		"src/index.ts",
-		"src/cli.ts",
-		"src/proc.ts",
-		"src/fmt.ts",
-		"src/preflight.ts",
-		"src/targets.ts",
-		"src/watch.ts",
-		"src/octocov.ts"
-	],
+	"entry": ["src/index.ts", "src/cli.ts"],
 	"project": ["src/**/*.ts"],
-	"ignore": ["fixtures/**"],
-	"ignoreDependencies": ["@types/bun"],
 	"ignoreExportsUsedInFile": true
 }

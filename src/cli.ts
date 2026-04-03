@@ -9,6 +9,7 @@ import { cli, command, type Flags } from "cleye";
 import pkg from "../package.json";
 import { loadConfig } from "./config.ts";
 import * as fmt from "./fmt.ts";
+import { exitCodeForSignal } from "./fmt.ts";
 import { runCommandHook } from "./hooks.ts";
 import { setupLogging, teardownLogging } from "./logging/setup.ts";
 import { ProcessGroup, run, runPiped, TempoAbortError } from "./proc.ts";
@@ -62,11 +63,7 @@ function extractGlobalFlags(): {
 }
 
 const globalFlags = extractGlobalFlags();
-process.argv = [
-	process.argv[0] as string,
-	process.argv[1] as string,
-	...globalFlags.cleaned,
-];
+const cleanedArgv = globalFlags.cleaned;
 await setupLogging({
 	verbosity: globalFlags.verbosity,
 	quiet: globalFlags.quiet,
@@ -79,7 +76,7 @@ async function shutdown(code: number): Promise<void> {
 }
 
 ProcessGroup.registerCliSignalHandlers(async (signal) => {
-	await shutdown(signal === "SIGINT" ? 130 : 143);
+	await shutdown(exitCodeForSignal(signal));
 });
 
 // Register virtual modules before loading config so `import from "@xevion/tempo"` works
@@ -189,6 +186,7 @@ async function executeCommand(
 async function buildCommands(
 	tree: CommandTree,
 	config: ResolvedConfig,
+	argv: string[],
 ): Promise<ReturnType<typeof command>[]> {
 	const commands: ReturnType<typeof command>[] = [];
 
@@ -204,10 +202,13 @@ async function buildCommands(
 					ignoreArgv: () => true,
 				},
 				async () => {
-					const nestedCommands = await buildCommands(nestedTree, config);
-					const groupIdx = process.argv.indexOf(name);
-					const nestedArgv =
-						groupIdx >= 0 ? process.argv.slice(groupIdx + 1) : [];
+					const groupIdx = argv.indexOf(name);
+					const nestedArgv = groupIdx >= 0 ? argv.slice(groupIdx + 1) : [];
+					const nestedCommands = await buildCommands(
+						nestedTree,
+						config,
+						nestedArgv,
+					);
 					await cli(
 						{
 							name: `tempo ${name}`,
@@ -258,11 +259,15 @@ function extractPassthrough(positionals: any): string[] {
 	return positionals?.passthrough ?? [];
 }
 
-const allCommands = await buildCommands(config.commands, config);
+const allCommands = await buildCommands(config.commands, config, cleanedArgv);
 
-await cli({
-	name: "tempo",
-	version: pkg.version,
-	commands: allCommands,
-	help: { description: "Developer script orchestrator" },
-});
+await cli(
+	{
+		name: "tempo",
+		version: pkg.version,
+		commands: allCommands,
+		help: { description: "Developer script orchestrator" },
+	},
+	undefined,
+	cleanedArgv,
+);

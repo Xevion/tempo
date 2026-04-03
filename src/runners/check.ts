@@ -1,5 +1,5 @@
 import { getLogger } from "@logtape/logtape";
-import { elapsed, isStderrTTY } from "../fmt.ts";
+import { elapsed, isInteractive } from "../fmt.ts";
 import { buildHookContext, runCleanups, tryHook } from "../hooks.ts";
 import {
 	checkMissingTools,
@@ -67,7 +67,7 @@ function buildEnvOverrides(
 	config: ResolvedConfig,
 ): Record<string, string> {
 	const env: Record<string, string> = { ...hookEnv };
-	if (isStderrTTY && !config.isCI) {
+	if (isInteractive(config)) {
 		env.FORCE_COLOR = "1";
 		env.CLICOLOR_FORCE = "1";
 	}

@@ -14,7 +14,7 @@ import type {
 export type {
 	AutoFixStrategy,
 	CheckConfig,
-	CheckInfo,
+	CheckRenderEvent,
 	CIConfig,
 	CollectResult,
 	CommandContext,
@@ -38,24 +38,16 @@ export type {
 	LintConfig,
 	ManagedProcess,
 	PreCommitConfig,
-	PreflightContext,
 	PreflightDef,
 	ResolvedConfig,
 	SignalStrategy,
 	SubsystemConfig,
 	TargetResult,
 	TempoConfig,
-	TempoLogger,
 	UnmanagedProcess,
 } from "./types.ts";
 
 export { FORMAT_APPLY, FORMAT_CHECK } from "./types.ts";
-
-export {
-	parseIntOption,
-	resolveEnumOption,
-	ValidationError,
-} from "./utils/validation.ts";
 
 /** Type-safe config helper — preserves subsystem name literals for downstream inference */
 export function defineConfig<const TSubsystems extends string>(

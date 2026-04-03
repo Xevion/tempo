@@ -1,5 +1,6 @@
 import { inspect } from "node:util";
 import type { LogRecord, Sink } from "@logtape/logtape";
+import { CLEAR_LINE } from "../fmt.ts";
 import { c } from "../utils/theme.ts";
 
 const LEVEL_WIDTH = 7;
@@ -114,7 +115,7 @@ function formatRecord(record: LogRecord): string {
 export function getColoredStderrSink(): Sink {
 	const sink: Sink & Disposable = Object.assign(
 		(record: LogRecord) => {
-			if (process.stderr.isTTY) process.stderr.write("\r\x1b[K");
+			if (process.stderr.isTTY) process.stderr.write(CLEAR_LINE);
 			process.stderr.write(formatRecord(record));
 		},
 		{

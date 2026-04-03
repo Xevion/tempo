@@ -1,5 +1,6 @@
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { resolve } from "node:path";
+import { exitCodeForSignal, RESET_TERMINAL } from "./fmt.ts";
 import type {
 	CollectResult,
 	CommandDef,
@@ -153,7 +154,7 @@ export class ProcessGroup {
 	}
 
 	private setupSignalHandlers(): void {
-		const handler = async () => {
+		const handler = async (signal: NodeJS.Signals) => {
 			if (this.shuttingDown) return;
 			this.shuttingDown = true;
 
@@ -172,19 +173,19 @@ export class ProcessGroup {
 				case "graceful":
 					await this.killAll();
 					await this.onBeforeExitFn?.();
-					process.exit(130);
+					process.exit(exitCodeForSignal(signal));
 					break;
 				case "immediate":
 					this.killAllSync();
-					process.exit(130);
+					process.exit(exitCodeForSignal(signal));
 					break;
 			}
 		};
 
-		this.sigintHandler = handler;
-		this.sigtermHandler = handler;
-		process.on("SIGINT", handler);
-		process.on("SIGTERM", handler);
+		this.sigintHandler = () => handler("SIGINT");
+		this.sigtermHandler = () => handler("SIGTERM");
+		process.on("SIGINT", this.sigintHandler);
+		process.on("SIGTERM", this.sigtermHandler);
 	}
 
 	/** Remove signal handlers to prevent leaks when this group is no longer needed */
@@ -298,7 +299,7 @@ export class ProcessGroup {
 	}
 
 	static resetTerminal(): void {
-		process.stdout.write("\x1b[0m\x1b[?25h\x1b[?1049l");
+		process.stdout.write(RESET_TERMINAL);
 		try {
 			spawnSync("stty", ["sane"], { stdio: ["inherit", "pipe", "pipe"] });
 		} catch {
