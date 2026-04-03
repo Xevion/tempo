@@ -1,4 +1,11 @@
-import { CLEAR_LINE, c, elapsed, isInteractive } from "../fmt.ts";
+import {
+	CLEAR_LINE,
+	c,
+	EXIT_SIGINT,
+	EXIT_SIGTERM,
+	elapsed,
+	isInteractive,
+} from "../fmt.ts";
 import { resolveCommandDef } from "../resolve.ts";
 import type {
 	CheckRenderEvent,
@@ -7,13 +14,19 @@ import type {
 	ResolvedConfig,
 } from "../types.ts";
 
-/** Determine if a result is a failure, considering warnIfExitCode */
+/** Whether a process was killed by a signal (exit code 128+signal) */
+function isSignalKilled(exitCode: number): boolean {
+	return exitCode === EXIT_SIGINT || exitCode === EXIT_SIGTERM;
+}
+
+/** Determine if a result is a failure, considering warnIfExitCode and signal kills */
 export function isFailure(
 	result: CollectResult,
 	def: CommandDef,
 	config: ResolvedConfig,
 ): boolean {
 	if (result.exitCode === 0) return false;
+	if (isSignalKilled(result.exitCode)) return false;
 	const checkOpts =
 		config.check?.options?.[result.name as `${string}:${string}`];
 	const { opts } = resolveCommandDef(def);
@@ -47,6 +60,10 @@ export function renderResult(
 	if (result.exitCode === 0) {
 		out.write(
 			`${c.catGreen("✓")} ${result.name} ${c.overlay0(`(${result.elapsed}s)`)}\n`,
+		);
+	} else if (isSignalKilled(result.exitCode)) {
+		out.write(
+			`${c.catYellow("⚡")} ${result.name} ${c.overlay0("interrupted")}\n`,
 		);
 	} else if (warnCode !== undefined && result.exitCode === warnCode) {
 		out.write(
@@ -82,11 +99,18 @@ export function renderSummary(
 		return;
 	}
 
-	const total = results.size;
-	const passed = [...results.values()].filter((r) => r.exitCode === 0).length;
+	const allResults = [...results.values()];
+	const interrupted = allResults.filter((r) => isSignalKilled(r.exitCode));
+	const completed = allResults.filter((r) => !isSignalKilled(r.exitCode));
+	const passed = completed.filter((r) => r.exitCode === 0).length;
+	const total = completed.length;
 	const out = isInteractive(config) ? process.stderr : process.stdout;
 
-	if (hasFailure) {
+	if (interrupted.length > 0) {
+		out.write(
+			`\n${c.bold(c.catYellow(`${passed}/${total} passed`))} ${c.overlay0(`(${totalElapsed}s)`)} ${c.overlay0(`(${interrupted.length} interrupted)`)}\n`,
+		);
+	} else if (hasFailure) {
 		out.write(
 			`\n${c.bold(c.catRed(`${passed}/${total} passed`))} ${c.overlay0(`(${totalElapsed}s)`)}\n`,
 		);
@@ -127,16 +151,19 @@ export function createSpinner(
 
 	const interval = setInterval(() => {
 		const el = elapsed(startTime);
+		const cols = process.stderr.columns || 80;
+		let text: string;
 		if (phase === "preflight") {
-			process.stderr.write(
-				`${CLEAR_LINE}${c.overlay0(`${el}s`)} ${c.overlay0(status)}`,
-			);
+			text = `${el}s ${status}`;
 		} else if (remaining.size > 0) {
-			const names = [...remaining].join(", ");
-			process.stderr.write(
-				`${CLEAR_LINE}${c.overlay0(`${el}s`)} ${c.overlay0(names)}`,
-			);
+			text = `${el}s ${[...remaining].join(", ")}`;
+		} else {
+			return;
 		}
+		if (text.length > cols) {
+			text = `${text.slice(0, cols - 1)}\u2026`;
+		}
+		process.stderr.write(`${CLEAR_LINE}${c.overlay0(text)}`);
 	}, 100);
 
 	return {

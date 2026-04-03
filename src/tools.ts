@@ -19,6 +19,26 @@ export function hasTool(cmd: string): boolean {
 	}
 }
 
+/** Print a warning for a missing tool to stderr */
+export function warnMissingTool(cmd: string, consequence: string): void {
+	process.stderr.write(
+		`\x1b[33m\u26A0 ${cmd} not found\x1b[0m, ${consequence}\n`,
+	);
+}
+
+/** Returns true if the Docker daemon is reachable */
+export function hasDockerDaemon(): boolean {
+	if (!hasTool("docker")) return false;
+	try {
+		const result = spawnSync("docker", ["info"], {
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		return result.status === 0;
+	} catch {
+		return false;
+	}
+}
+
 /** Collect requires from subsystem + command definition, deduped */
 export function collectRequires(
 	subsystemRequires: string[] | undefined,

@@ -10,7 +10,9 @@ export {
 	checkMissingTools,
 	collectRequires,
 	getMissingTools,
+	hasDockerDaemon,
 	hasTool,
+	warnMissingTool,
 } from "./tools.ts";
 
 /** Promise that resolves with exit code when a ChildProcess exits */
