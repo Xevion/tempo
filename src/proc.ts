@@ -12,6 +12,7 @@ export {
 	getMissingTools,
 	hasDockerDaemon,
 	hasTool,
+	requireDockerDaemon,
 	warnMissingTool,
 } from "./tools.ts";
 

@@ -39,6 +39,16 @@ export function hasDockerDaemon(): boolean {
 	}
 }
 
+/** Throw if Docker is not installed or the daemon is not running */
+export function requireDockerDaemon(): void {
+	if (!hasTool("docker")) {
+		throw new Error("docker not found -- install Docker first");
+	}
+	if (!hasDockerDaemon()) {
+		throw new Error("Docker daemon is not running -- start Docker first");
+	}
+}
+
 /** Collect requires from subsystem + command definition, deduped */
 export function collectRequires(
 	subsystemRequires: string[] | undefined,

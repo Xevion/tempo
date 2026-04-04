@@ -306,8 +306,8 @@ export interface TargetResult<T extends string> {
  * - `typeof entry === 'function'` → bare function
  * - `typeof entry === 'string'` → file path for dynamic import
  * - `entry === false` → explicitly disabled
- * - `typeof entry === 'object' && 'run' in entry` → InlineCommandSpec
- * - `typeof entry === 'object' && !('run' in entry)` → CommandTree (nested group)
+ * - `typeof entry === 'object' && typeof entry.run === 'function'` → InlineCommandSpec
+ * - `typeof entry === 'object' && typeof entry.run !== 'function'` → CommandTree (nested group)
  */
 
 /** Recursive record of command entries — supports nested command groups. */

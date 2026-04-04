@@ -119,9 +119,15 @@ async function resolveSpec(
 	return null;
 }
 
-/** Check if a CommandEntry is a nested command group */
+/** Check if a CommandEntry is a nested command group (not an InlineCommandSpec).
+ *  InlineCommandSpec has `run` as a function; a CommandTree may have a `run` key
+ *  that is itself a nested CommandEntry (object/string/function), not the spec's runner. */
 function isCommandGroup(entry: CommandEntry): entry is CommandTree {
-	return typeof entry === "object" && entry !== null && !("run" in entry);
+	return (
+		typeof entry === "object" &&
+		entry !== null &&
+		(!("run" in entry) || typeof entry.run !== "function")
+	);
 }
 
 /** Execute a command spec with hook dispatch, cleanup, and error handling */
@@ -209,7 +215,7 @@ async function buildCommands(
 					);
 					await cli(
 						{
-							name: `tempo ${name}`,
+							name,
 							commands: nestedCommands,
 							help: { description: `Commands under ${name}` },
 						},
