@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import type { CommandDef } from "./types.ts";
+import type { CommandDef, ToolRequirement } from "./types.ts";
 
 const toolCache = new Map<string, boolean>();
 
@@ -49,19 +49,40 @@ export function requireDockerDaemon(): void {
 	}
 }
 
-/** Collect requires from subsystem + command definition, deduped */
+interface NormalizedRequirement {
+	tool: string;
+	hint?: string;
+}
+
+/** Normalize a ToolRequirement to its object form */
+function normalize(req: ToolRequirement): NormalizedRequirement {
+	return typeof req === "string" ? { tool: req } : req;
+}
+
+/** Collect requires from subsystem + command definition, deduped. Command-level hints override subsystem-level. */
 export function collectRequires(
-	subsystemRequires: string[] | undefined,
+	subsystemRequires: ToolRequirement[] | undefined,
 	def: CommandDef,
-): string[] {
-	const cmdRequires =
+): NormalizedRequirement[] {
+	const cmdRequires: ToolRequirement[] | undefined =
 		typeof def === "object" && !Array.isArray(def) ? def.requires : undefined;
 	if (
 		(subsystemRequires?.length ?? 0) === 0 &&
 		(cmdRequires?.length ?? 0) === 0
 	)
 		return [];
-	return [...new Set([...(subsystemRequires ?? []), ...(cmdRequires ?? [])])];
+
+	const map = new Map<string, NormalizedRequirement>();
+	for (const req of subsystemRequires ?? []) {
+		const n = normalize(req);
+		map.set(n.tool, n);
+	}
+	// Command-level overrides subsystem-level hints
+	for (const req of cmdRequires ?? []) {
+		const n = normalize(req);
+		map.set(n.tool, n);
+	}
+	return [...map.values()];
 }
 
 /** Return tool names from a requires list that are not on PATH */
@@ -69,13 +90,13 @@ export function getMissingTools(requires: string[]): string[] {
 	return requires.filter((tool) => !hasTool(tool));
 }
 
-/** Returns missing tool names if any required tools are absent, null if all present */
+/** Return missing tool requirements (with hints) if any required tools are absent, null if all present */
 export function checkMissingTools(
-	subsystemRequires: string[] | undefined,
+	subsystemRequires: ToolRequirement[] | undefined,
 	def: CommandDef,
-): string[] | null {
+): NormalizedRequirement[] | null {
 	const requires = collectRequires(subsystemRequires, def);
 	if (requires.length === 0) return null;
-	const missing = getMissingTools(requires);
+	const missing = requires.filter((req) => !hasTool(req.tool));
 	return missing.length > 0 ? missing : null;
 }

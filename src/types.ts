@@ -7,6 +7,9 @@ export const DEFAULT_AUTOFIX = {
 	[FORMAT_CHECK]: FORMAT_APPLY,
 } as const;
 
+/** A tool requirement: bare name or object with optional install hint */
+export type ToolRequirement = string | { tool: string; hint?: string };
+
 /** String shorthand, array, or full object command definition */
 export type CommandDef = string | string[] | CommandObject;
 
@@ -14,11 +17,10 @@ export interface CommandObject {
 	cmd: string | string[];
 	env?: Record<string, string>;
 	cwd?: string;
-	hint?: string;
 	warnIfExitCode?: number;
 	timeout?: number;
 	/** Tool names that must be on PATH. Check is skipped with a warning if any are missing. */
-	requires?: string[];
+	requires?: ToolRequirement[];
 }
 
 export interface SubsystemConfig<TCommands extends string = string> {
@@ -26,7 +28,7 @@ export interface SubsystemConfig<TCommands extends string = string> {
 	cwd?: string;
 	alwaysRun?: boolean;
 	/** Tool names required by all commands in this subsystem. Merged with per-command requires. */
-	requires?: string[];
+	requires?: ToolRequirement[];
 	commands?: Record<TCommands, CommandDef>;
 	autoFix?: Partial<Record<NoInfer<TCommands>, NoInfer<TCommands>>>;
 }
@@ -50,16 +52,25 @@ export type PreflightDef =
 
 export type AutoFixStrategy = "fix-first" | "fix-on-fail";
 
+export interface SkippedCheck {
+	name: string;
+	missing: string[];
+	hints: Map<string, string>;
+}
+
 export interface CheckRenderEvent {
 	type:
 		| "check-start"
 		| "check-complete"
+		| "check-skip"
 		| "fix-start"
 		| "fix-complete"
 		| "summary";
 	name?: string;
 	result?: CollectResult;
 	results?: Map<string, CollectResult>;
+	skipped?: SkippedCheck;
+	skippedCount?: number;
 }
 
 export interface CheckConfig<TSubsystems extends string = string> {
@@ -71,7 +82,6 @@ export interface CheckConfig<TSubsystems extends string = string> {
 			`${NoInfer<TSubsystems>}:${string}`,
 			{
 				env?: Record<string, string>;
-				hint?: string;
 				warnIfExitCode?: number;
 				timeout?: number;
 			}

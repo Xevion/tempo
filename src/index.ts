@@ -33,6 +33,7 @@ export type {
 	RunnerFlagsConfig,
 	SubsystemConfig,
 	TempoConfig,
+	ToolRequirement,
 } from "./types.ts";
 
 export { DEFAULT_AUTOFIX, FORMAT_APPLY, FORMAT_CHECK } from "./types.ts";

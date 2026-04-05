@@ -12,6 +12,7 @@ import type {
 	CollectResult,
 	CommandDef,
 	ResolvedConfig,
+	SkippedCheck,
 } from "../types.ts";
 
 /** Whether a process was killed by a signal (exit code 128+signal) */
@@ -44,7 +45,6 @@ export function renderResult(
 	const checkOpts =
 		config.check?.options?.[result.name as `${string}:${string}`];
 	const { opts } = resolveCommandDef(def);
-	const hint = opts.hint ?? checkOpts?.hint;
 	const warnCode = opts.warnIfExitCode ?? checkOpts?.warnIfExitCode;
 	const toTTY = isInteractive(config);
 	const out = toTTY ? process.stderr : process.stdout;
@@ -73,16 +73,32 @@ export function renderResult(
 		out.write(
 			`${c.catRed("✗")} ${result.name} ${c.overlay0(`(${result.elapsed}s)`)}\n`,
 		);
-		if (hint) {
-			out.write(`  ${c.overlay0("hint:")} ${hint}\n`);
-		} else {
-			if (result.stdout.trim()) out.write(result.stdout);
-			if (result.stderr.trim()) process.stderr.write(result.stderr);
-		}
+		if (result.stdout.trim()) out.write(result.stdout);
+		if (result.stderr.trim()) process.stderr.write(result.stderr);
 	}
 
 	if (config.isCI && config.ci?.groupedOutput) {
 		process.stdout.write("::endgroup::\n");
+	}
+}
+
+/** Render a skipped check (missing tools) */
+export function renderSkipped(
+	skip: SkippedCheck,
+	config: ResolvedConfig,
+): void {
+	const toTTY = isInteractive(config);
+	const out = toTTY ? process.stderr : process.stdout;
+
+	if (toTTY) {
+		process.stderr.write(CLEAR_LINE);
+	}
+
+	out.write(
+		`${c.catYellow("⊘")} ${skip.name} ${c.overlay0(`(skipped — missing: ${skip.missing.join(", ")})`)}\n`,
+	);
+	for (const [tool, hint] of skip.hints) {
+		out.write(`  ${c.overlay0(`hint (${tool}):`)} ${hint}\n`);
 	}
 }
 
@@ -92,10 +108,15 @@ export function renderSummary(
 	hasFailure: boolean,
 	totalElapsed: string,
 	config: ResolvedConfig,
+	skippedCount = 0,
 ): void {
 	const renderer = config.check?.renderer;
 	if (renderer) {
-		renderer({ type: "summary", results } as CheckRenderEvent);
+		renderer({
+			type: "summary",
+			results,
+			skippedCount,
+		} as CheckRenderEvent);
 		return;
 	}
 
@@ -105,18 +126,20 @@ export function renderSummary(
 	const passed = completed.filter((r) => r.exitCode === 0).length;
 	const total = completed.length;
 	const out = isInteractive(config) ? process.stderr : process.stdout;
+	const skippedSuffix =
+		skippedCount > 0 ? ` ${c.overlay0(`(${skippedCount} skipped)`)}` : "";
 
 	if (interrupted.length > 0) {
 		out.write(
-			`\n${c.bold(c.catYellow(`${passed}/${total} passed`))} ${c.overlay0(`(${totalElapsed}s)`)} ${c.overlay0(`(${interrupted.length} interrupted)`)}\n`,
+			`\n${c.bold(c.catYellow(`${passed}/${total} passed`))} ${c.overlay0(`(${totalElapsed}s)`)} ${c.overlay0(`(${interrupted.length} interrupted)`)}${skippedSuffix}\n`,
 		);
 	} else if (hasFailure) {
 		out.write(
-			`\n${c.bold(c.catRed(`${passed}/${total} passed`))} ${c.overlay0(`(${totalElapsed}s)`)}\n`,
+			`\n${c.bold(c.catRed(`${passed}/${total} passed`))} ${c.overlay0(`(${totalElapsed}s)`)}${skippedSuffix}\n`,
 		);
 	} else {
 		out.write(
-			`\n${c.bold(c.catGreen(`${total}/${total} passed`))} ${c.overlay0(`(${totalElapsed}s)`)}\n`,
+			`\n${c.bold(c.catGreen(`${total}/${total} passed`))} ${c.overlay0(`(${totalElapsed}s)`)}${skippedSuffix}\n`,
 		);
 	}
 }

@@ -11,6 +11,7 @@ import type {
 	CollectResult,
 	HookContext,
 	ResolvedConfig,
+	SkippedCheck,
 } from "../types.ts";
 import { runFixFirst, runFixOnFail } from "./check-autofix.ts";
 import { runPreflights } from "./check-preflight.ts";
@@ -18,18 +19,46 @@ import {
 	createSpinner,
 	isFailure,
 	renderResult,
+	renderSkipped,
 	renderSummary,
 } from "./check-renderer.ts";
 import { type CheckEntry, spawnChecks } from "./check-spawn.ts";
 
 const logger = getLogger(["tempo", "check"]);
 
+/** Render all skipped checks via custom renderer or default */
+function renderSkippedChecks(
+	skipped: SkippedCheck[],
+	config: ResolvedConfig,
+): void {
+	const renderer = config.check?.renderer;
+	for (const skip of skipped) {
+		if (renderer) {
+			renderer({ type: "check-skip", name: skip.name, skipped: skip });
+		} else {
+			renderSkipped(skip, config);
+		}
+	}
+}
+
+/** Build hints map from missing tool requirements */
+function buildHintsMap(
+	missing: { tool: string; hint?: string }[],
+): Map<string, string> {
+	const hints = new Map<string, string>();
+	for (const req of missing) {
+		if (req.hint) hints.set(req.tool, req.hint);
+	}
+	return hints;
+}
+
 /** Build the list of checks to run from targeted subsystems */
 function buildCheckList(
 	subsystems: Set<string>,
 	config: ResolvedConfig,
-): CheckEntry[] {
+): { checks: CheckEntry[]; skipped: SkippedCheck[] } {
 	const checks: CheckEntry[] = [];
+	const skipped: SkippedCheck[] = [];
 	const excluded: Set<string> = new Set(config.check?.exclude ?? []);
 
 	for (const subsystem of subsystems) {
@@ -40,9 +69,14 @@ function buildCheckList(
 			if (excluded.has(checkName)) continue;
 			const missing = checkMissingTools(sub.requires, def);
 			if (missing) {
+				skipped.push({
+					name: checkName,
+					missing: missing.map((r) => r.tool),
+					hints: buildHintsMap(missing),
+				});
 				logger.warn("skip {name} (missing: {tools})", {
 					name: checkName,
-					tools: missing.join(", "),
+					tools: missing.map((r) => r.tool).join(", "),
 				});
 				continue;
 			}
@@ -56,7 +90,7 @@ function buildCheckList(
 		}
 	}
 
-	return checks;
+	return { checks, skipped };
 }
 
 /** Build env overrides from hook env, TTY settings, and CI injection */
@@ -166,12 +200,14 @@ export async function runCheck(
 	} = buildHookContext(config, flags, targetResult.subsystems);
 
 	const startTime = Date.now();
-	const checks = buildCheckList(targetResult.subsystems, config);
+	const { checks, skipped } = buildCheckList(targetResult.subsystems, config);
 	const spinner = createSpinner(
 		config,
 		startTime,
 		checks.map((ch) => ch.name),
 	);
+
+	renderSkippedChecks(skipped, config);
 
 	try {
 		await runPreflights(config, baseHookCtx.logger, baseHookCtx.fail, (label) =>
@@ -236,6 +272,12 @@ export async function runCheck(
 	}
 	await runCleanups(cleanupFns);
 
-	renderSummary(results, hasFailure, elapsed(startTime), config);
+	renderSummary(
+		results,
+		hasFailure,
+		elapsed(startTime),
+		config,
+		skipped.length,
+	);
 	return hasFailure ? 1 : 0;
 }
