@@ -1,6 +1,12 @@
 import { resolve } from "node:path";
 import { resolveCmd } from "./proc.ts";
-import type { CommandDef, CommandObject } from "./types.ts";
+import type { CommandDef, CommandObject, SubsystemRef } from "./types.ts";
+
+/** Normalize a SubsystemRef to a colon-separated string */
+export function refToString(ref: SubsystemRef): string {
+	if (Array.isArray(ref)) return `${ref[0]}:${ref[1]}`;
+	return ref;
+}
 
 /** Resolve a CommandDef to a spawnable cmd array and its options */
 export function resolveCommandDef(def: CommandDef): {

@@ -3,7 +3,7 @@ import { TempoAbortError } from "../errors.ts";
 import { elapsed, isInteractive } from "../fmt.ts";
 import { buildHookContext, runCleanups, tryHook } from "../hooks.ts";
 import { drainAsCompleted } from "../proc.ts";
-import { resolveCommandDef } from "../resolve.ts";
+import { refToString, resolveCommandDef } from "../resolve.ts";
 import { resolveAndLogTargets } from "../targets.ts";
 import { checkMissingTools } from "../tools.ts";
 import type {
@@ -53,18 +53,24 @@ function buildHintsMap(
 }
 
 /** Build the list of checks to run from targeted subsystems */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: nested loops with filtering and tool-check branching
 function buildCheckList(
 	subsystems: Set<string>,
 	config: ResolvedConfig,
 ): { checks: CheckEntry[]; skipped: SkippedCheck[] } {
 	const checks: CheckEntry[] = [];
 	const skipped: SkippedCheck[] = [];
-	const excluded: Set<string> = new Set(config.check?.exclude ?? []);
+	const excluded: Set<string> = new Set(
+		(config.check?.exclude ?? []).map(refToString),
+	);
+
+	const commandKeyFilter = config.check?.commandKey;
 
 	for (const subsystem of subsystems) {
 		const sub = config.subsystems[subsystem];
 		if (!sub?.commands) continue;
 		for (const [action, def] of Object.entries(sub.commands)) {
+			if (commandKeyFilter && action !== commandKeyFilter) continue;
 			const checkName = `${subsystem}:${action}`;
 			if (excluded.has(checkName)) continue;
 			const missing = checkMissingTools(sub.requires, def);

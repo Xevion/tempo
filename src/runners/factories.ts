@@ -5,15 +5,16 @@ import type {
 	DevProcess,
 	ExitBehavior,
 	InlineCommandSpec,
+	ParallelCommandSpec,
+	SequentialCommandSpec,
+	SubsystemRef,
+	WatchCommandSpec,
 } from "../types.ts";
-import { runCheck } from "./check.ts";
-import { runDev } from "./dev.ts";
 import { runPreCommit } from "./pre-commit.ts";
-import { runSequential } from "./sequential.ts";
 
 export interface CheckRunnerOptions {
 	autoFixStrategy?: AutoFixStrategy;
-	exclude?: `${string}:${string}`[];
+	exclude?: SubsystemRef[];
 	options?: Partial<
 		Record<
 			string,
@@ -46,10 +47,12 @@ export interface PreCommitRunnerOptions {
 }
 
 /** Parallel check orchestrator — runs all subsystem commands with auto-fix support. */
-export function check(opts?: CheckRunnerOptions): InlineCommandSpec {
-	const { flags: userFlags, ...checkOpts } = opts ?? {};
+export function check(opts?: CheckRunnerOptions): ParallelCommandSpec {
+	const { flags: userFlags, ...rest } = opts ?? {};
 	return {
+		mode: "parallel",
 		description: "Parallel check orchestrator with auto-fix",
+		commandKey: "all",
 		parameters: ["[targets...]"],
 		flags: {
 			fix: {
@@ -58,15 +61,15 @@ export function check(opts?: CheckRunnerOptions): InlineCommandSpec {
 			},
 			...userFlags,
 		},
+		preflight: true,
+		spinner: true,
 		managesHooks: true,
-		run: async (ctx) => {
-			const config = ctx.config;
-			const mergedConfig = {
-				...config,
-				check: { ...config.check, ...checkOpts },
-			};
-			return runCheck(mergedConfig, ctx.args, ctx.flags);
-		},
+		autoFix: rest.autoFixStrategy
+			? { strategy: rest.autoFixStrategy }
+			: undefined,
+		exclude: rest.exclude,
+		options: rest.options,
+		renderer: rest.renderer,
 	};
 }
 
@@ -74,37 +77,29 @@ export function check(opts?: CheckRunnerOptions): InlineCommandSpec {
 export function sequential(
 	commandKey: string,
 	opts?: SequentialRunnerOptions,
-): InlineCommandSpec {
+): SequentialCommandSpec {
 	return {
+		mode: "sequential",
 		description:
 			opts?.description ?? `Sequential per-subsystem runner: ${commandKey}`,
+		commandKey,
 		parameters: ["[targets...]", "--", "[passthrough...]"],
 		flags: { ...opts?.flags },
-		run: async (ctx) =>
-			runSequential(ctx.config, ctx.args, ctx.passthrough, {
-				commandKey,
-				loggerName: commandKey,
-				autoFixFallback: opts?.autoFixFallback,
-			}),
+		autoFixFallback: opts?.autoFixFallback,
 	};
 }
 
 /** Multi-process dev server manager with file watching. */
-export function dev(opts?: DevRunnerOptions): InlineCommandSpec {
-	const { flags: userFlags, ...devOpts } = opts ?? {};
+export function dev(opts?: DevRunnerOptions): WatchCommandSpec {
+	const { flags: userFlags, ...rest } = opts ?? {};
 	return {
+		mode: "watch",
 		description: "Multi-process dev server manager",
 		parameters: ["[targets...]", "--", "[passthrough...]"],
 		flags: { ...userFlags },
 		managesHooks: true,
-		run: async (ctx) => {
-			const config = ctx.config;
-			const mergedConfig = {
-				...config,
-				dev: { ...config.dev, ...devOpts },
-			};
-			return runDev(mergedConfig, ctx.args, ctx.flags, ctx.passthrough);
-		},
+		processes: rest.processes,
+		exitBehavior: rest.exitBehavior,
 	};
 }
 

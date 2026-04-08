@@ -117,8 +117,12 @@ async function resolveSpec(
 			return null;
 		}
 	}
-	// Object with `run` → InlineCommandSpec
+	// Object with `run` → SimpleCommandSpec
 	if ("run" in entry && typeof entry.run === "function") {
+		return entry as InlineCommandSpec;
+	}
+	// Object with `mode` → mode-based spec (parallel/sequential/watch)
+	if ("mode" in entry && typeof entry.mode === "string") {
 		return entry as InlineCommandSpec;
 	}
 	// Otherwise it's a nested group — handled by buildCommands, not here
@@ -132,7 +136,11 @@ function isCommandGroup(entry: CommandEntry): entry is CommandTree {
 	return (
 		typeof entry === "object" &&
 		entry !== null &&
-		(!("run" in entry) || typeof entry.run !== "function")
+		(!("run" in entry) || typeof entry.run !== "function") &&
+		!(
+			"mode" in entry &&
+			typeof (entry as Record<string, unknown>).mode === "string"
+		)
 	);
 }
 
@@ -158,16 +166,29 @@ async function executeCommand(
 			Object.assign(process.env, hookEnv);
 		}
 
-		const exitCode = await spec.run({
-			group,
-			config,
-			flags: (flags ?? {}) as InferFlags<Record<string, CommandFlagDef>>,
-			args: extractArgs(positionals),
-			passthrough: extractPassthrough(positionals),
-			run,
-			runPiped,
-			fmt,
-		});
+		let exitCode: number;
+		if (spec.mode) {
+			const { executeMode } = await import("./runners/mode-dispatch.ts");
+			exitCode = await executeMode(
+				name,
+				spec,
+				config,
+				flags,
+				extractArgs(positionals),
+				extractPassthrough(positionals),
+			);
+		} else {
+			exitCode = await spec.run({
+				group,
+				config,
+				flags: (flags ?? {}) as InferFlags<Record<string, CommandFlagDef>>,
+				args: extractArgs(positionals),
+				passthrough: extractPassthrough(positionals),
+				run,
+				runPiped,
+				fmt,
+			});
+		}
 
 		if (!spec.managesHooks) {
 			await runCommandHook(config, `after:${name}`, flags);

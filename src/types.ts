@@ -75,8 +75,13 @@ export interface CheckRenderEvent {
 
 export interface CheckConfig<TSubsystems extends string = string> {
 	flags?: Record<string, CommandFlagDef>;
-	exclude?: `${NoInfer<TSubsystems>}:${string}`[];
+	exclude?: (
+		| `${NoInfer<TSubsystems>}:${string}`
+		| [NoInfer<TSubsystems>, string]
+	)[];
 	autoFixStrategy?: AutoFixStrategy;
+	/** When set, only run this specific command key from each subsystem instead of all commands. */
+	commandKey?: string;
 	options?: Partial<
 		Record<
 			`${NoInfer<TSubsystems>}:${string}`,
@@ -239,6 +244,122 @@ export interface CommandFlagDef {
 	default?: boolean | string | number;
 }
 
+/** Execution modes for orchestrated commands */
+export type CommandMode = "parallel" | "sequential" | "watch";
+
+/**
+ * Reference to a subsystem:command pair.
+ * Accepts colon-separated string or tuple form.
+ */
+export type SubsystemRef<TSubsystems extends string = string> =
+	| `${TSubsystems}:${string}`
+	| [TSubsystems, string];
+
+/** Shared fields present on all InlineCommandSpec variants */
+export interface CommandSpecBase<
+	TFlags extends Record<string, CommandFlagDef> = Record<
+		string,
+		CommandFlagDef
+	>,
+> {
+	name?: string;
+	description?: string;
+	flags?: TFlags;
+	/** Cleye parameter definitions, e.g. ["[targets...]", "--", "[passthrough...]"] */
+	parameters?: string[];
+	/** Command alias(es) for cleye, e.g. "format" for the fmt command */
+	alias?: string | string[];
+	/** When true, the command manages its own before:/after: hook lifecycle internally (skip generic dispatch) */
+	managesHooks?: boolean;
+}
+
+/** Simple command — user-provided run function, no orchestration */
+export interface SimpleCommandSpec<
+	TFlags extends Record<string, CommandFlagDef> = Record<
+		string,
+		CommandFlagDef
+	>,
+> extends CommandSpecBase<TFlags> {
+	mode?: undefined;
+	run: (ctx: CommandContext<TFlags>) => Promise<number> | number;
+}
+
+/** Parallel mode — runs subsystem commands concurrently (like check runner) */
+export interface ParallelCommandSpec<
+	TFlags extends Record<string, CommandFlagDef> = Record<
+		string,
+		CommandFlagDef
+	>,
+> extends CommandSpecBase<TFlags> {
+	mode: "parallel";
+	/** Which subsystem command to run. Defaults to the command's own name. Use 'all' to run every command from each subsystem (check-style). */
+	commandKey?: string | "all";
+	/** Preflight checks: true = use config.preflights, array = use these specific preflights */
+	preflight?: boolean | PreflightDef[];
+	/** Auto-fix configuration */
+	autoFix?: { strategy: AutoFixStrategy };
+	/** Show TUI spinner during execution (default: true for parallel) */
+	spinner?: boolean;
+	/** Subsystem:command pairs to exclude from execution */
+	exclude?: SubsystemRef[];
+	/** Per-check overrides (env, timeout, warnIfExitCode) keyed by subsystem:command */
+	options?: Partial<
+		Record<
+			string,
+			{
+				env?: Record<string, string>;
+				warnIfExitCode?: number;
+				timeout?: number;
+			}
+		>
+	>;
+	/** Custom renderer for check events (replaces default spinner + line output) */
+	renderer?: (event: CheckRenderEvent) => void;
+	run?: undefined;
+}
+
+/** Sequential mode — runs one command from each subsystem in order */
+export interface SequentialCommandSpec<
+	TFlags extends Record<string, CommandFlagDef> = Record<
+		string,
+		CommandFlagDef
+	>,
+> extends CommandSpecBase<TFlags> {
+	mode: "sequential";
+	/** Which subsystem command to run. Defaults to the command's own name. */
+	commandKey?: string;
+	/** Fall back to autoFix commands when primary commandKey is missing */
+	autoFixFallback?: boolean;
+	run?: undefined;
+}
+
+/** Watch mode — manages long-lived processes with file watching (like dev runner) */
+export interface WatchCommandSpec<
+	TFlags extends Record<string, CommandFlagDef> = Record<
+		string,
+		CommandFlagDef
+	>,
+> extends CommandSpecBase<TFlags> {
+	mode: "watch";
+	/** Per-subsystem process definitions */
+	processes?: Partial<Record<string, DevProcess>>;
+	/** How to handle process exits */
+	exitBehavior?: ExitBehavior;
+	run?: undefined;
+}
+
+/** A command spec for inline use where the config key provides the name */
+export type InlineCommandSpec<
+	TFlags extends Record<string, CommandFlagDef> = Record<
+		string,
+		CommandFlagDef
+	>,
+> =
+	| SimpleCommandSpec<TFlags>
+	| ParallelCommandSpec<TFlags>
+	| SequentialCommandSpec<TFlags>
+	| WatchCommandSpec<TFlags>;
+
 export interface CommandSpec<
 	TFlags extends Record<string, CommandFlagDef> = Record<
 		string,
@@ -250,22 +371,6 @@ export interface CommandSpec<
 	flags?: TFlags;
 	run: (ctx: CommandContext<TFlags>) => Promise<number> | number;
 }
-
-/** CommandSpec with optional name — for inline use where the config key provides the name */
-export type InlineCommandSpec<
-	TFlags extends Record<string, CommandFlagDef> = Record<
-		string,
-		CommandFlagDef
-	>,
-> = Omit<CommandSpec<TFlags>, "name"> & {
-	name?: string;
-	/** Cleye parameter definitions, e.g. ["[targets...]", "--", "[passthrough...]"] */
-	parameters?: string[];
-	/** Command alias(es) for cleye, e.g. "format" for the fmt command */
-	alias?: string | string[];
-	/** When true, the command manages its own before:/after: hook lifecycle internally (skip generic dispatch) */
-	managesHooks?: boolean;
-};
 
 /** A command entry: file path, bare function, or inline CommandSpec */
 export type CommandEntry =
@@ -318,8 +423,9 @@ export interface TargetResult<T extends string> {
  * - `typeof entry === 'function'` → bare function
  * - `typeof entry === 'string'` → file path for dynamic import
  * - `entry === false` → explicitly disabled
- * - `typeof entry === 'object' && typeof entry.run === 'function'` → InlineCommandSpec
- * - `typeof entry === 'object' && typeof entry.run !== 'function'` → CommandTree (nested group)
+ * - `typeof entry === 'object' && typeof entry.run === 'function'` → SimpleCommandSpec
+ * - `typeof entry === 'object' && 'mode' in entry` → mode-based spec (ParallelCommandSpec | SequentialCommandSpec | WatchCommandSpec)
+ * - `typeof entry === 'object' && typeof entry.run !== 'function' && !('mode' in entry)` → CommandTree (nested group)
  */
 
 /** Recursive record of command entries — supports nested command groups. */

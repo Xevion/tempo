@@ -18,8 +18,10 @@ export type {
 	CommandDef,
 	CommandEntry,
 	CommandFlagDef,
+	CommandMode,
 	CommandObject,
 	CommandSpec,
+	CommandSpecBase,
 	CommandTree,
 	DeclarativePreflight,
 	DevConfig,
@@ -28,12 +30,17 @@ export type {
 	Hooks,
 	InferFlags,
 	InlineCommandSpec,
+	ParallelCommandSpec,
 	PreflightDef,
 	ResolvedConfig,
 	RunnerFlagsConfig,
+	SequentialCommandSpec,
+	SimpleCommandSpec,
 	SubsystemConfig,
+	SubsystemRef,
 	TempoConfig,
 	ToolRequirement,
+	WatchCommandSpec,
 } from "./types.ts";
 
 export { DEFAULT_AUTOFIX, FORMAT_APPLY, FORMAT_CHECK } from "./types.ts";
