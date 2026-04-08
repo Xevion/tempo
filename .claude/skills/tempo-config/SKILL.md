@@ -25,14 +25,20 @@ The package provides a `tempo` CLI binary and TypeScript API. It works with Bun,
 Config lives in `tempo.config.ts` at the project root. The CLI auto-discovers it by walking up from `cwd`. Override with `--config <path>`.
 
 ```typescript
-import { defineConfig, presets } from "@xevion/tempo";
+import { defineConfig, presets, runners } from "@xevion/tempo";
 
 export default defineConfig({
   subsystems: { /* required, at least one */ },
-  commands: { /* required, at least one */ },
+  commands: {   /* required — all CLI subcommands (built-in runners + custom) */
+    check: runners.check({ autoFixStrategy: "fix-first" }),
+    fmt: runners.sequential("format-apply", { autoFixFallback: true }),
+    lint: runners.sequential("lint"),
+    dev: runners.dev(),
+    "pre-commit": runners.preCommit(),
+    // ... custom commands inline or as nested groups
+  },
   preflights: [ /* optional */ ],
-  check: { /* optional */ },
-  dev: { /* optional */ },
+  dev: { /* optional — processes, exitBehavior */ },
   ci: { /* optional */ },
   hooks: { /* optional */ },
 });
@@ -61,10 +67,14 @@ subsystems: {
         cmd: "bunx biome lint .",
         env: { NODE_ENV: "production" },
         cwd: "web",                    // override subsystem cwd
-        hint: "Run `tempo fmt frontend` to auto-fix",
         warnIfExitCode: 2,             // treat as warning, not failure
         timeout: 120,                  // kill after N seconds
-        requires: ["biome"],           // per-command tool requirements
+        requires: ["biome"],           // per-command tool requirements (string shorthand)
+      },
+      // Tool requirements can also use object form with install hints
+      audit: {
+        cmd: "cargo audit",
+        requires: [{ tool: "cargo-audit", hint: "Install with `cargo install cargo-audit`" }],
       },
     },
     autoFix: {
@@ -171,7 +181,6 @@ check: {
   options: {
     "backend:test": {
       env: { DATABASE_URL: "postgresql://localhost/dev" },
-      hint: "Start the database: just db start",
       warnIfExitCode: 2,
       timeout: 120,
     },
@@ -261,12 +270,16 @@ Preflights run serially. A failure stops the check run immediately.
 
 ## Custom Commands
 
-Custom commands are registered as top-level CLI subcommands. Invoke directly (`tempo smoke`) or via the `run` alias (`tempo run smoke`). Custom commands can shadow built-in commands.
+Custom commands live in the `commands` config key alongside built-in runners. They become top-level CLI subcommands. Nested objects create command groups.
 
 ```typescript
-custom: {
-  smoke: "./scripts/smoke.ts",           // file path (default export must be defineCommand result)
-  "db-reset": "./scripts/db-reset.ts",
+commands: {
+  // Built-in runners
+  check: runners.check({ autoFixStrategy: "fix-first" }),
+  fmt: runners.sequential("format-apply", { autoFixFallback: true }),
+
+  // File path — default export must be a defineCommand result
+  smoke: "./scripts/smoke.ts",
 
   // Inline function — no flags, receives CommandContext
   seed: async (ctx) => {
@@ -283,10 +296,22 @@ custom: {
     },
     run: async (ctx) => {
       if (ctx.flags.dry) {
-        ctx.fmt.theme.info("Dry run mode");
+        console.error(ctx.fmt.c.catBlue("Dry run mode"));
       }
       ctx.run(`deploy --env ${ctx.flags.env}`);
       return 0;
+    },
+  },
+
+  // Nested command group — `tempo docker build`, `tempo docker run`
+  docker: {
+    build: {
+      description: "Build Docker image",
+      run: async (ctx) => { ctx.run(["docker", "build", "-t", "myapp", "."]); return 0; },
+    },
+    run: {
+      description: "Run Docker container",
+      run: async (ctx) => { ctx.run(["docker", "run", "--rm", "myapp"]); return 0; },
     },
   },
 },
@@ -312,7 +337,7 @@ export default defineCommand({
     // ctx.args — positional arguments after flags
     // ctx.run() — synchronous execution (inherited stdio)
     // ctx.runPiped() — synchronous piped execution
-    // ctx.fmt — formatting utilities (colors, theme, etc.)
+    // ctx.fmt — formatting utilities (ctx.fmt.c for Catppuccin colors via ansis)
 
     ctx.run(`curl -sf ${ctx.flags.url}/health`);
     return 0;
@@ -366,9 +391,8 @@ Auto-detects: `CI`, `GITHUB_ACTIONS`, `GITLAB_CI`, `CIRCLECI`, `JENKINS_URL`, `B
 | `tempo fmt [targets...] [flags...] [-- passthrough...]` | Sequential formatting |
 | `tempo lint [targets...] [flags...] [-- passthrough...]` | Sequential linting |
 | `tempo pre-commit [flags...]` | Staged-file formatter with partial staging detection |
-| `tempo <custom-name> [args...]` | Custom command (top-level subcommand) |
-| `tempo run <name> [args...]` | Custom command (via run alias) |
-| `tempo run --list` | List registered custom commands |
+| `tempo <command> [args...]` | Any command defined in config.commands |
+| `tempo <group> <subcommand> [args...]` | Nested command groups |
 
 Global flags (pre-extracted, work with all commands): `--config <path>`, `-v`/`-vv`/`-vvv`, `-q`/`--quiet`, `--log-file <path>`, `--help`, `--version`
 
@@ -383,7 +407,7 @@ For advanced use cases, import primitives directly:
 | Import | Provides |
 |--------|----------|
 | `@xevion/tempo/proc` | `ProcessGroup`, `run`, `runPiped`, `spawnCollect`, `drainAsCompleted` |
-| `@xevion/tempo/fmt` | Theme colors (ansis/catppuccin), `formatDuration`, `formatTokens`, `termWidth`, `wordWrap`, `parseArgs`, TTY detection |
+| `@xevion/tempo/fmt` | `c` (Catppuccin Mocha colors via ansis — e.g., `c.catBlue`, `c.catGreen`, `c.catRed`), `formatDuration`, `formatTokens`, `termWidth`, `wordWrap`, `parseArgs`, TTY detection |
 | `@xevion/tempo/preflight` | `newestMtime`, `ensureFresh` |
 | `@xevion/tempo/targets` | `resolveTargets`, `isAll`, `targetLabel` |
 | `@xevion/tempo/watch` | `BackendWatcher` (5-state machine) |
@@ -439,7 +463,7 @@ backend: {
   ...presets.rust(),
   commands: {
     ...presets.rust().commands,
-    "sql-check": { cmd: "cargo sqlx prepare --check", hint: "Run: cargo sqlx prepare" },
+    "sql-check": { cmd: "cargo sqlx prepare --check", requires: [{ tool: "sqlx", hint: "Install with `cargo install sqlx-cli`" }] },
     "schema-check": "./scripts/check-schema.sh",
   },
 },
@@ -458,7 +482,7 @@ backend: {
 3. **Use `alwaysRun`** for cross-cutting concerns (security audits, license checks)
 4. **Prefer `fix-first` strategy** unless your checks are expensive and rarely fail
 5. **Use `requires`** to gracefully skip checks when tools aren't installed
-6. **Use `hint`** on commands that often fail for environmental reasons (missing DB, etc.)
+6. **Use `requires` with hints** for tool dependencies: `requires: [{ tool: "sqlx", hint: "Install with..." }]`
 7. **Use preflights** for codegen/bindings rather than manual regeneration
 8. **Keep custom commands in separate files** with `defineCommand` for complex logic; use inline functions/specs for simple ones
 9. **Use `warnIfExitCode`** for checks that should surface issues without blocking the pipeline
