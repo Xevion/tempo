@@ -135,6 +135,7 @@ async function enforceRuntime(config: TempoConfig): Promise<void> {
 export async function loadConfig(options?: {
 	configPath?: string;
 	cwd?: string;
+	json?: boolean;
 }): Promise<ResolvedConfig> {
 	const cwd = options?.cwd ?? process.cwd();
 	const configPath = resolveConfigPath(cwd, options?.configPath);
@@ -149,6 +150,7 @@ export async function loadConfig(options?: {
 		configPath,
 		rootDir,
 		isCI,
+		json: options?.json ?? false,
 		preflights: config.preflights ?? [],
 		check: {
 			autoFixStrategy: "fix-first",

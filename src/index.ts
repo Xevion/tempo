@@ -53,6 +53,7 @@ function createStubConfig(): ResolvedConfig {
 		configPath: "",
 		rootDir: process.cwd(),
 		isCI: false,
+		json: false,
 		preflights: [],
 		check: { autoFixStrategy: "fix-first" },
 		dev: { exitBehavior: "first-exits" },

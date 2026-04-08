@@ -3,6 +3,7 @@ import { type FSWatcher, watch } from "node:fs";
 import { join } from "node:path";
 import { getLogger } from "@logtape/logtape";
 import { elapsed } from "./fmt.ts";
+import { pipeJsonLines } from "./logging/json.ts";
 import { gracefulKill, onExit, resolveCmd, streamToString } from "./proc.ts";
 
 const logger = getLogger(["tempo", "watch"]);
@@ -37,6 +38,8 @@ export class BackendWatcher {
 	private cwd?: string;
 	private env?: Record<string, string>;
 	private passthrough: string[];
+	private json: boolean;
+	private name: string;
 
 	constructor(options: {
 		watchDirs: string[];
@@ -50,6 +53,10 @@ export class BackendWatcher {
 		cwd?: string;
 		env?: Record<string, string>;
 		passthrough?: string[];
+		/** When true, pipe server stdout/stderr through JSON line envelopes */
+		json?: boolean;
+		/** Label for JSON output envelopes (typically the subsystem name) */
+		name?: string;
 	}) {
 		this.done = new Promise((resolve) => {
 			this.resolveDone = resolve;
@@ -65,6 +72,8 @@ export class BackendWatcher {
 		this.cwd = options.cwd;
 		this.env = options.env;
 		this.passthrough = options.passthrough ?? [];
+		this.json = options.json ?? false;
+		this.name = options.name ?? "managed";
 	}
 
 	start(): void {
@@ -223,8 +232,11 @@ export class BackendWatcher {
 		this.server = spawn(fullCmd[0] as string, fullCmd.slice(1), {
 			cwd: this.cwd,
 			env: { ...process.env, ...this.env },
-			stdio: "inherit",
+			stdio: this.json ? ["inherit", "pipe", "pipe"] : "inherit",
 		});
+		if (this.json) {
+			pipeJsonLines(this.server, this.name);
+		}
 		this.state = "running";
 		logger.info("server started pid {pid}", { pid: this.server.pid });
 

@@ -6,6 +6,13 @@ import {
 	elapsed,
 	isInteractive,
 } from "../fmt.ts";
+import {
+	emitJson,
+	nowIso,
+	type ResultJsonRecord,
+	type SkipJsonRecord,
+	type SummaryJsonRecord,
+} from "../logging/json.ts";
 import { resolveCommandDef } from "../resolve.ts";
 import type {
 	CheckRenderEvent,
@@ -42,6 +49,20 @@ export function renderResult(
 	def: CommandDef,
 	config: ResolvedConfig,
 ): void {
+	if (config.json) {
+		const record: ResultJsonRecord = {
+			ts: nowIso(),
+			type: "result",
+			name: result.name,
+			exitCode: result.exitCode,
+			elapsed: result.elapsed,
+			stdout: result.stdout,
+			stderr: result.stderr,
+		};
+		emitJson(record);
+		return;
+	}
+
 	const checkOpts =
 		config.check?.options?.[result.name as `${string}:${string}`];
 	const { opts } = resolveCommandDef(def);
@@ -87,6 +108,17 @@ export function renderSkipped(
 	skip: SkippedCheck,
 	config: ResolvedConfig,
 ): void {
+	if (config.json) {
+		const record: SkipJsonRecord = {
+			ts: nowIso(),
+			type: "skip",
+			name: skip.name,
+			missing: skip.missing,
+		};
+		emitJson(record);
+		return;
+	}
+
 	const toTTY = isInteractive(config);
 	const out = toTTY ? process.stderr : process.stdout;
 
@@ -110,6 +142,23 @@ export function renderSummary(
 	config: ResolvedConfig,
 	skippedCount = 0,
 ): void {
+	if (config.json) {
+		const allResults = [...results.values()];
+		const completed = allResults.filter((r) => !isSignalKilled(r.exitCode));
+		const passed = completed.filter((r) => r.exitCode === 0).length;
+		const record: SummaryJsonRecord = {
+			ts: nowIso(),
+			type: "summary",
+			passed,
+			total: completed.length,
+			skippedCount,
+			elapsed: totalElapsed,
+			hasFailure,
+		};
+		emitJson(record);
+		return;
+	}
+
 	const renderer = config.check?.renderer;
 	if (renderer) {
 		renderer({
@@ -158,7 +207,7 @@ export function createSpinner(
 	checkNames: string[],
 ): Spinner {
 	const renderer = config.check?.renderer;
-	if (renderer || !isInteractive(config)) {
+	if (renderer || config.json || !isInteractive(config)) {
 		// No-op spinner for non-interactive or custom renderer
 		return {
 			setPhase() {},

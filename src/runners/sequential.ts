@@ -1,5 +1,6 @@
 import { getLogger } from "@logtape/logtape";
-import { run } from "../proc.ts";
+import { emitJson, nowIso, type OutputJsonRecord } from "../logging/json.ts";
+import { run, runPiped } from "../proc.ts";
 import {
 	appendPassthrough,
 	resolveCommandDef,
@@ -53,7 +54,28 @@ export async function runSequential(
 		const cwd = resolveCwd(config.rootDir, cmdOpts.cwd, sub.cwd);
 		const finalCmd = appendPassthrough(cmd, passthrough);
 
-		run(finalCmd, { cwd });
+		if (config.json) {
+			const result = runPiped(finalCmd, { cwd });
+			const ts = nowIso();
+			for (const stream of ["stdout", "stderr"] as const) {
+				for (const line of result[stream].split("\n")) {
+					if (!line) continue;
+					const record: OutputJsonRecord = {
+						ts,
+						type: "output",
+						name: subsystem,
+						stream,
+						line,
+					};
+					emitJson(record);
+				}
+			}
+			if (result.exitCode !== 0) {
+				return result.exitCode;
+			}
+		} else {
+			run(finalCmd, { cwd });
+		}
 	}
 
 	return 0;

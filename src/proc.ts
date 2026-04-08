@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { TempoRunError } from "./errors.ts";
 import { elapsed, exitCodeForSignal, RESET_TERMINAL } from "./fmt.ts";
+import { pipeJsonLines } from "./logging/json.ts";
 import type { CollectResult, SignalStrategy } from "./types.ts";
 
 // Re-export for backward compatibility with @xevion/tempo/proc consumers
@@ -208,18 +209,26 @@ export class ProcessGroup {
 			env?: Record<string, string>;
 			inheritStdin?: boolean;
 			ci?: boolean;
+			/** Subsystem or process name, used as the label in JSON output envelopes */
+			name?: string;
+			/** When true, pipe stdout/stderr through JSON line envelopes instead of inheriting */
+			json?: boolean;
 		},
 	): ChildProcess {
 		const args = resolveCmd(cmd);
+		const useJsonPipe = options?.json === true;
 		const proc = spawn(args[0] as string, args.slice(1), {
 			cwd: options?.cwd,
 			env: { ...process.env, ...options?.env },
 			stdio: [
 				options?.inheritStdin ? "inherit" : "ignore",
-				"inherit",
-				"inherit",
+				useJsonPipe ? "pipe" : "inherit",
+				useJsonPipe ? "pipe" : "inherit",
 			],
 		});
+		if (useJsonPipe) {
+			pipeJsonLines(proc, options?.name ?? "subprocess");
+		}
 		this.children.add(proc);
 		const exitPromise = onExit(proc);
 		this.exitPromises.set(proc, exitPromise);

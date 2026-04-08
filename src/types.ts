@@ -214,6 +214,8 @@ export interface ResolvedConfig<TSubsystems extends string = string>
 	configPath: string;
 	rootDir: string;
 	isCI: boolean;
+	/** When true, all output is emitted as JSON Lines to stdout */
+	json: boolean;
 	/** Always populated after resolution — contains all registered CLI subcommands. */
 	commands: CommandTree;
 }

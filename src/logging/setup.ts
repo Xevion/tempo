@@ -1,10 +1,12 @@
 import { getFileSink } from "@logtape/file";
 import { configure, type LogLevel, reset, type Sink } from "@logtape/logtape";
+import { getJsonStdoutSink } from "./json.ts";
 import { getColoredStderrSink } from "./sink.ts";
 
 export interface LoggingOptions {
 	verbosity: number;
 	quiet: boolean;
+	json?: boolean;
 	logFile?: string;
 }
 
@@ -22,7 +24,7 @@ export async function setupLogging(opts: LoggingOptions): Promise<void> {
 	const sinkNames: string[] = [];
 
 	if (!opts.quiet) {
-		sinks.console = getColoredStderrSink();
+		sinks.console = opts.json ? getJsonStdoutSink() : getColoredStderrSink();
 		sinkNames.push("console");
 	}
 

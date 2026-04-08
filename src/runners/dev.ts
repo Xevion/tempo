@@ -48,7 +48,13 @@ export async function runDev(
 					: baseCwd;
 				const env = { ...envOverrides, ...procDef.env };
 				logger.info("start {subsystem} (unmanaged)", { subsystem });
-				group.spawn(procDef.cmd, { cwd, env, inheritStdin: true });
+				group.spawn(procDef.cmd, {
+					cwd,
+					env,
+					inheritStdin: true,
+					name: subsystem,
+					json: config.json,
+				});
 			} else if (procDef.type === "managed") {
 				const cwd = procDef.cwd
 					? resolve(config.rootDir, procDef.cwd)
@@ -70,6 +76,8 @@ export async function runDev(
 					cwd,
 					env,
 					passthrough: passthroughArgs,
+					json: config.json,
+					name: subsystem,
 				});
 
 				group.onCleanup(() => watcher.killSync());

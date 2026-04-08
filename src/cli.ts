@@ -37,6 +37,7 @@ const logger = getLogger(["tempo", "cli"]);
 function extractGlobalFlags(argv?: string[]): {
 	verbosity: number;
 	quiet: boolean;
+	json: boolean;
 	logFile?: string;
 	configPath?: string;
 	cleaned: string[];
@@ -44,6 +45,7 @@ function extractGlobalFlags(argv?: string[]): {
 	const args = argv ?? process.argv.slice(2);
 	let verbosity = 0;
 	let quiet = false;
+	let json = false;
 	let logFile: string | undefined;
 	let configPath: string | undefined;
 	const cleaned: string[] = [];
@@ -55,6 +57,8 @@ function extractGlobalFlags(argv?: string[]): {
 			verbosity += (vMatch[1] as string).length;
 		} else if (arg === "-q" || arg === "--quiet") {
 			quiet = true;
+		} else if (arg === "--json") {
+			json = true;
 		} else if (arg === "--log-file" && args[i + 1]) {
 			logFile = args[++i];
 		} else if (arg.startsWith("--log-file=")) {
@@ -68,7 +72,9 @@ function extractGlobalFlags(argv?: string[]): {
 		}
 	}
 
-	return { verbosity, quiet, logFile, configPath, cleaned };
+	if (process.env.LOG_FORMAT === "json") json = true;
+
+	return { verbosity, quiet, json, logFile, configPath, cleaned };
 }
 
 async function shutdown(code: number): Promise<void> {
@@ -269,6 +275,7 @@ export async function main(argv?: string[]): Promise<void> {
 	await setupLogging({
 		verbosity: globalFlags.verbosity,
 		quiet: globalFlags.quiet,
+		json: globalFlags.json,
 		logFile: globalFlags.logFile,
 	});
 
@@ -280,7 +287,10 @@ export async function main(argv?: string[]): Promise<void> {
 	await initRegistration();
 
 	// Load config before building commands so config-defined flags can be spread into cleye
-	const config = await loadConfig({ configPath: globalFlags.configPath });
+	const config = await loadConfig({
+		configPath: globalFlags.configPath,
+		json: globalFlags.json,
+	});
 
 	const allCommands = await buildCommands(config.commands, config, cleanedArgv);
 

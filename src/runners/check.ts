@@ -99,7 +99,9 @@ function buildEnvOverrides(
 	config: ResolvedConfig,
 ): Record<string, string> {
 	const env: Record<string, string> = { ...hookEnv };
-	if (isInteractive(config)) {
+	if (config.json) {
+		env.NO_COLOR = "1";
+	} else if (isInteractive(config)) {
 		env.FORCE_COLOR = "1";
 		env.CLICOLOR_FORCE = "1";
 	}
