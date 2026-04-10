@@ -1,6 +1,6 @@
 {
 	"name": "@xevion/tempo",
-	"version": "0.1.3",
+	"version": "0.1.4",
 	"type": "module",
 	"description": "Consolidated developer scripts with composable primitives and config-driven runners",
 	"author": "Xevion",
