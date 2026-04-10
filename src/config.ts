@@ -75,7 +75,10 @@ async function importConfig(configPath: string): Promise<TempoConfig> {
 					`  3. Use bunx --bun: bunx --bun tempo check`,
 			);
 		}
-		throw error;
+		const message = error instanceof Error ? error.message : String(error);
+		throw new TempoConfigError(
+			`Failed to load config at ${configPath}: ${message}`,
+		);
 	}
 	const config = (mod.default ?? mod) as TempoConfig;
 

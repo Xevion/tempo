@@ -98,24 +98,22 @@ async function resolveSpec(
 	}
 	if (typeof entry === "string") {
 		const fullPath = resolve(rootDir, entry);
+		let mod: Record<string, unknown>;
 		try {
-			const mod = await import(fullPath);
-			const spec = mod.default as CommandSpec | undefined;
-			if (spec && typeof spec.run === "function") {
-				return spec;
-			}
-			logger.error(
-				"invalid command at {entry}: default export must be a defineCommand result",
-				{ entry },
-			);
-			return null;
+			mod = await import(fullPath);
 		} catch (err) {
-			logger.error("failed to import custom command {entry}: {err}", {
-				entry,
-				err,
-			});
-			return null;
+			const message = err instanceof Error ? err.message : String(err);
+			throw new TempoConfigError(
+				`Failed to import custom command from ${fullPath}: ${message}`,
+			);
 		}
+		const spec = mod.default as CommandSpec | undefined;
+		if (!spec || typeof spec.run !== "function") {
+			throw new TempoConfigError(
+				`Invalid command at ${fullPath}: default export must be a defineCommand result`,
+			);
+		}
+		return spec;
 	}
 	// Object with `run` → SimpleCommandSpec
 	if ("run" in entry && typeof entry.run === "function") {
@@ -142,6 +140,28 @@ function isCommandGroup(entry: CommandEntry): entry is CommandTree {
 			typeof (entry as Record<string, unknown>).mode === "string"
 		)
 	);
+}
+
+/** Map a thrown error to an exit code and log it appropriately. */
+async function handleCommandError(name: string, err: unknown): Promise<never> {
+	if (err instanceof TempoAbortError) {
+		if (err.message) logger.error("aborted: {reason}", { reason: err.message });
+		else logger.error("aborted");
+		await shutdown(1);
+	}
+	if (err instanceof TempoRunError) {
+		await shutdown(err.exitCode);
+	}
+	if (err instanceof TempoConfigError || err instanceof TempoTargetError) {
+		logger.error(err.message);
+		await shutdown(1);
+	}
+	const message = err instanceof Error ? err.message : String(err);
+	logger.error("command {name} failed: {message}", { name, message });
+	if (err instanceof Error && err.stack) logger.debug(err.stack);
+	await shutdown(1);
+	// unreachable — shutdown calls process.exit
+	throw err;
 }
 
 /** Execute a command spec with hook dispatch, cleanup, and error handling */
@@ -196,13 +216,7 @@ async function executeCommand(
 
 		await shutdown(exitCode);
 	} catch (err) {
-		if (err instanceof TempoAbortError) {
-			await shutdown(1);
-		}
-		if (err instanceof TempoRunError) {
-			await shutdown(err.exitCode);
-		}
-		throw err;
+		await handleCommandError(name, err);
 	} finally {
 		for (const fn of cleanupFns) {
 			try {

@@ -229,18 +229,23 @@ export class BackendWatcher {
 
 	private async startServer(): Promise<void> {
 		const fullCmd = [...this.runCmd, ...this.passthrough];
-		this.server = spawn(fullCmd[0] as string, fullCmd.slice(1), {
+		const proc = spawn(fullCmd[0] as string, fullCmd.slice(1), {
 			cwd: this.cwd,
 			env: { ...process.env, ...this.env },
 			stdio: this.json ? ["inherit", "pipe", "pipe"] : "inherit",
 		});
+		this.server = proc;
 		if (this.json) {
-			pipeJsonLines(this.server, this.name);
+			pipeJsonLines(proc, this.name);
 		}
 		this.state = "running";
-		logger.info("server started pid {pid}", { pid: this.server.pid });
+		logger.info("server started pid {pid}", { pid: proc.pid });
 
-		onExit(this.server).then((code) => {
+		onExit(proc).then((code) => {
+			// Only react if this specific proc is still the current server — a
+			// newer server may have been started (e.g. after a rebuild) between
+			// the exit firing and this handler running.
+			if (this.server !== proc) return;
 			if (this.state === "running") {
 				logger.warn("server exited unexpectedly (code {code})", { code });
 				this.server = null;

@@ -1,4 +1,5 @@
 import { getLogger } from "@logtape/logtape";
+import { TempoConfigError } from "../errors.ts";
 import { refToString } from "../resolve.ts";
 import type {
 	InlineCommandSpec,
@@ -23,7 +24,9 @@ export async function executeMode(
 	passthrough: string[],
 ): Promise<number> {
 	if (!spec.mode) {
-		throw new Error(`executeMode called on spec without mode: ${name}`);
+		throw new TempoConfigError(
+			`Internal: executeMode called on spec without mode: ${name}`,
+		);
 	}
 
 	switch (spec.mode) {

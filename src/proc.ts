@@ -389,11 +389,12 @@ export async function spawnCollect(
 
 	let timedOut = false;
 	let killTimer: ReturnType<typeof setTimeout> | undefined;
+	let cancelEscalation: (() => void) | undefined;
 
 	if (options?.timeout) {
 		killTimer = setTimeout(() => {
 			timedOut = true;
-			escalateKill(proc);
+			cancelEscalation = escalateKill(proc);
 		}, options.timeout * 1000);
 	}
 
@@ -403,6 +404,7 @@ export async function spawnCollect(
 		streamToString(proc.stderr),
 	]);
 	if (killTimer) clearTimeout(killTimer);
+	cancelEscalation?.();
 
 	let stderr = stderrRaw;
 	if (timedOut) {

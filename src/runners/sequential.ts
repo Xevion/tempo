@@ -45,7 +45,7 @@ export async function runSequential(
 		if (missing) {
 			logger.warn("skip {subsystem} (missing: {tools})", {
 				subsystem,
-				tools: missing.join(", "),
+				tools: missing.map((r) => r.tool).join(", "),
 			});
 			continue;
 		}
