@@ -308,7 +308,11 @@ export class ProcessGroup {
 	}
 
 	static resetTerminal(): void {
-		process.stdout.write(RESET_TERMINAL);
+		// Terminal reset escape sequences are only meaningful for an interactive TTY.
+		// Emit to stderr so they never corrupt a JSON Lines stdout stream.
+		if (process.stderr.isTTY) {
+			process.stderr.write(RESET_TERMINAL);
+		}
 		try {
 			spawnSync("stty", ["sane"], { stdio: ["inherit", "pipe", "pipe"] });
 		} catch {

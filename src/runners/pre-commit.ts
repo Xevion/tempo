@@ -73,18 +73,28 @@ export async function runPreCommit(
 		const checkResult = runPiped(checkCmd, { cwd });
 
 		if (checkResult.exitCode === 0) {
-			process.stdout.write(
-				`${c.catGreen("✓")} ${c.overlay0(subsystem)} format check passed\n`,
-			);
+			if (config.json) {
+				logger.info("format check passed {subsystem}", { subsystem });
+			} else {
+				process.stdout.write(
+					`${c.catGreen("✓")} ${c.overlay0(subsystem)} format check passed\n`,
+				);
+			}
 			continue;
 		}
 
 		// Format check failed — try to auto-fix
 		const fixAction = sub.autoFix?.[FORMAT_CHECK];
 		if (!fixAction || !sub.commands[fixAction]) {
-			process.stdout.write(
-				`${c.catRed("✗")} ${c.overlay0(subsystem)} format check failed (no auto-fix available)\n`,
-			);
+			if (config.json) {
+				logger.error("format check failed (no auto-fix) {subsystem}", {
+					subsystem,
+				});
+			} else {
+				process.stdout.write(
+					`${c.catRed("✗")} ${c.overlay0(subsystem)} format check failed (no auto-fix available)\n`,
+				);
+			}
 			hasFailure = true;
 			continue;
 		}
@@ -95,15 +105,22 @@ export async function runPreCommit(
 		// Check for partial staging conflicts
 		const conflictingFiles = files.filter((f) => partiallyStaged.has(f));
 		if (conflictingFiles.length > 0) {
-			process.stdout.write(
-				`${c.catYellow("⚠")} ${c.overlay0(subsystem)} has partially staged files that need formatting:\n`,
-			);
-			for (const f of conflictingFiles) {
-				process.stdout.write(`  ${c.overlay0(f)}\n`);
+			if (config.json) {
+				logger.error("partially staged files need formatting {subsystem}", {
+					subsystem,
+					files: conflictingFiles,
+				});
+			} else {
+				process.stdout.write(
+					`${c.catYellow("⚠")} ${c.overlay0(subsystem)} has partially staged files that need formatting:\n`,
+				);
+				for (const f of conflictingFiles) {
+					process.stdout.write(`  ${c.overlay0(f)}\n`);
+				}
+				process.stdout.write(
+					`${c.overlay0("Please stage or stash your changes and run the formatter manually.")}\n`,
+				);
 			}
-			process.stdout.write(
-				`${c.overlay0("Please stage or stash your changes and run the formatter manually.")}\n`,
-			);
 			hasFailure = true;
 			continue;
 		}
@@ -116,9 +133,13 @@ export async function runPreCommit(
 			runPiped(["git", "add", file]);
 		}
 
-		process.stdout.write(
-			`${c.catGreen("✓")} ${c.overlay0(subsystem)} auto-formatted and re-staged\n`,
-		);
+		if (config.json) {
+			logger.info("auto-formatted and re-staged {subsystem}", { subsystem });
+		} else {
+			process.stdout.write(
+				`${c.catGreen("✓")} ${c.overlay0(subsystem)} auto-formatted and re-staged\n`,
+			);
+		}
 	}
 
 	return hasFailure ? 1 : 0;

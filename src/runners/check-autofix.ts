@@ -146,18 +146,32 @@ export async function runFixOnFail(
 	let hasFailure = false;
 	await drainAsCompleted(rePromises, reFallbacks, (result) => {
 		results.set(result.name, result);
-		const out = isInteractive(config) ? process.stderr : process.stdout;
-		if (result.exitCode === 0) {
-			out.write(
-				`${c.catGreen("✓")} ${result.name} ${c.overlay0("(fixed)")} ${c.overlay0(`(${result.elapsed}s)`)}\n`,
-			);
-		} else {
-			hasFailure = true;
-			out.write(
-				`${c.catRed("✗")} ${result.name} ${c.overlay0("(still failing)")} ${c.overlay0(`(${result.elapsed}s)`)}\n`,
-			);
-		}
+		if (result.exitCode !== 0) hasFailure = true;
+		renderReVerifyResult(result, config, logger);
 	});
 
 	return hasFailure;
+}
+
+function renderReVerifyResult(
+	result: CollectResult,
+	config: ResolvedConfig,
+	logger: Logger,
+): void {
+	const passed = result.exitCode === 0;
+	if (config.json) {
+		const msg = passed
+			? "fix verified {name} ({elapsed}s)"
+			: "fix still failing {name} ({elapsed}s)";
+		const props = { name: result.name, elapsed: result.elapsed };
+		if (passed) logger.info(msg, props);
+		else logger.error(msg, props);
+		return;
+	}
+	const out = isInteractive(config) ? process.stderr : process.stdout;
+	const mark = passed ? c.catGreen("✓") : c.catRed("✗");
+	const label = passed ? "(fixed)" : "(still failing)";
+	out.write(
+		`${mark} ${result.name} ${c.overlay0(label)} ${c.overlay0(`(${result.elapsed}s)`)}\n`,
+	);
 }

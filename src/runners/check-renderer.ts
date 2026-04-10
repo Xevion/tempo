@@ -74,7 +74,7 @@ export function renderResult(
 		process.stderr.write(CLEAR_LINE);
 	}
 
-	if (config.isCI && config.ci?.groupedOutput) {
+	if (config.isCI && config.ci?.groupedOutput && !config.json) {
 		process.stdout.write(`::group::${result.name}\n`);
 	}
 
@@ -98,7 +98,7 @@ export function renderResult(
 		if (result.stderr.trim()) process.stderr.write(result.stderr);
 	}
 
-	if (config.isCI && config.ci?.groupedOutput) {
+	if (config.isCI && config.ci?.groupedOutput && !config.json) {
 		process.stdout.write("::endgroup::\n");
 	}
 }
