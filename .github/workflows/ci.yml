@@ -28,7 +28,7 @@ jobs:
         with:
           bun-version: latest
 
-      - uses: actions/setup-node@v6 # zizmor: ignore[unpinned-uses]
+      - uses: actions/setup-node@v6.3.0 # zizmor: ignore[unpinned-uses]
         with:
           node-version: "22"
 
@@ -82,7 +82,7 @@ jobs:
 
       - name: Report check statuses
         if: always()
-        uses: actions/github-script@v8 # zizmor: ignore[unpinned-uses,template-injection]
+        uses: actions/github-script@v9 # zizmor: ignore[unpinned-uses,template-injection]
         with:
           script: |
             const checks = [
