@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.1.4](https://github.com/Xevion/tempo/compare/v0.1.3...v0.1.4) (2026-04-10)
+
+
+### Features
+
+* auto-reexec under Bun when lockfile or runtime config detected ([11d0d7a](https://github.com/Xevion/tempo/commit/11d0d7a0f7b1d0ad8b552464ecb214b7da37df7d))
+* declarative mode-based command specs (parallel/sequential/watch) ([577c89f](https://github.com/Xevion/tempo/commit/577c89fd08552b4f028c20c45fc75f3b4211202b))
+* detect interrupted checks, truncate spinner, add Docker helper ([1c901c4](https://github.com/Xevion/tempo/commit/1c901c415e536750081af1afb17bd31d0b36efbd))
+* extend spinner to preflights and route TTY output to stderr ([5a57e74](https://github.com/Xevion/tempo/commit/5a57e74c83de0bf9ba23c01418f9a9d22ee2fddd))
+* integrate all flags through cleye, promote custom commands to top-level ([bbb2c63](https://github.com/Xevion/tempo/commit/bbb2c6399086fc92bc1f54af589f11f4a597efdc))
+* structured JSON output for logs, process output, and check results ([8cd2351](https://github.com/Xevion/tempo/commit/8cd2351c28ea8236eab58c4cc8cffa88610c1ece))
+* unified command model — all CLI subcommands defined via config ([0fb76c4](https://github.com/Xevion/tempo/commit/0fb76c4eea3f9636d6a4a136785e01e62197a0e4))
+
+
+### Bug Fixes
+
+* enforce stdout JSON purity across runners and terminal reset ([43f6697](https://github.com/Xevion/tempo/commit/43f669706a18ba19e392d5c8d90cbc40473f2e9f))
+* isCommandGroup misclassifies CommandTree with `run` subcommand; add requireDockerDaemon ([4f379b2](https://github.com/Xevion/tempo/commit/4f379b2a7f0d5bf5cf2c68ff7d816bfdad8a0e46))
+* typed errors, fix-on-fail robustness, and stale proc guard ([526f793](https://github.com/Xevion/tempo/commit/526f7935f2de2fd74eafc62bc4298e9a0ee83128))
+
+
+### Documentation
+
+* revise tempo-config skill to match current API surface ([cd40484](https://github.com/Xevion/tempo/commit/cd40484426dcfff84ff5c6134b977304aee37922))
+
+
+### Code Refactoring
+
+* decompose check runner, extract registration, fix hook env loss ([21524a3](https://github.com/Xevion/tempo/commit/21524a3f79afa12f8a413bd663ea6e2162009702))
+* decompose proc.ts, extract typed errors, clean up API surface ([869547f](https://github.com/Xevion/tempo/commit/869547f3860a67486f7c079c0241c170ba06743c))
+* extract shared kill, hook, and tool-check helpers ([530939e](https://github.com/Xevion/tempo/commit/530939eeb02007a295a070a364c3bc19211403c5))
+* model tool requirements as typed objects, surface skips ([c50174e](https://github.com/Xevion/tempo/commit/c50174ed6f6006be8d0b9e21b266ea76804f7e02))
+* named constants, trim exports, fix lint warnings ([1417a6e](https://github.com/Xevion/tempo/commit/1417a6e448d26dc0c2d4b452a47eea36981a79a6))
+
 ## [0.1.3](https://github.com/Xevion/tempo/compare/v0.1.2...v0.1.3) (2026-03-28)
 
 
