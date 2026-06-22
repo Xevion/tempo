@@ -25,7 +25,7 @@ jobs:
     steps:
       - name: Run Release Please
         id: release
-        uses: googleapis/release-please-action@v4 # zizmor: ignore[unpinned-uses]
+        uses: googleapis/release-please-action@v5 # zizmor: ignore[unpinned-uses]
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }} # zizmor: ignore[secrets-outside-env]
         env:
@@ -41,7 +41,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v6 # zizmor: ignore[unpinned-uses]
+      - uses: actions/checkout@v6.0.3 # zizmor: ignore[unpinned-uses]
         with:
           persist-credentials: false
 
