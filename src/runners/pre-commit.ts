@@ -1,5 +1,6 @@
 import { getLogger } from "@logtape/logtape";
 import { c } from "../fmt.ts";
+import { lockFileFor } from "../lock.ts";
 import { run, runPiped } from "../proc.ts";
 import { resolveCommandDef, resolveCwd } from "../resolve.ts";
 import { checkMissingTools } from "../tools.ts";
@@ -69,8 +70,9 @@ export async function runPreCommit(
 		if (checkMissingTools(sub.requires, checkDef)) continue;
 
 		const cwd = resolveCwd(config.rootDir, undefined, sub.cwd);
-		const { cmd: checkCmd } = resolveCommandDef(checkDef);
-		const checkResult = runPiped(checkCmd, { cwd });
+		const { cmd: checkCmd, opts: checkOpts } = resolveCommandDef(checkDef);
+		const lock = lockFileFor(config.rootDir, sub.lock, checkOpts.lock);
+		const checkResult = runPiped(checkCmd, { cwd, lock });
 
 		if (checkResult.exitCode === 0) {
 			if (config.json) {
@@ -126,7 +128,7 @@ export async function runPreCommit(
 		}
 
 		// Run formatter
-		run(fixCmd, { cwd });
+		run(fixCmd, { cwd, lock });
 
 		// Re-stage formatted files
 		for (const file of files) {

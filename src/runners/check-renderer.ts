@@ -42,6 +42,12 @@ export function isFailure(
 	return warnCode === undefined || result.exitCode !== warnCode;
 }
 
+/** Timing suffix for a result line, calling out lock wait when the check had to queue */
+function timing(result: CollectResult): string {
+	const wait = result.lockWait ? `, waited ${result.lockWait}s` : "";
+	return c.overlay0(`(${result.elapsed}s${wait})`);
+}
+
 /** Render a single check result to stdout/stderr */
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: rendering logic with many output branches
 export function renderResult(
@@ -79,21 +85,15 @@ export function renderResult(
 	}
 
 	if (result.exitCode === 0) {
-		out.write(
-			`${c.catGreen("✓")} ${result.name} ${c.overlay0(`(${result.elapsed}s)`)}\n`,
-		);
+		out.write(`${c.catGreen("✓")} ${result.name} ${timing(result)}\n`);
 	} else if (isSignalKilled(result.exitCode)) {
 		out.write(
 			`${c.catYellow("⚡")} ${result.name} ${c.overlay0("interrupted")}\n`,
 		);
 	} else if (warnCode !== undefined && result.exitCode === warnCode) {
-		out.write(
-			`${c.catYellow("⚠")} ${result.name} ${c.overlay0(`(${result.elapsed}s)`)}\n`,
-		);
+		out.write(`${c.catYellow("⚠")} ${result.name} ${timing(result)}\n`);
 	} else {
-		out.write(
-			`${c.catRed("✗")} ${result.name} ${c.overlay0(`(${result.elapsed}s)`)}\n`,
-		);
+		out.write(`${c.catRed("✗")} ${result.name} ${timing(result)}\n`);
 		if (result.stdout.trim()) out.write(result.stdout);
 		if (result.stderr.trim()) process.stderr.write(result.stderr);
 	}
@@ -196,6 +196,9 @@ export function renderSummary(
 export interface Spinner {
 	setPhase(phase: "preflight" | "checks"): void;
 	setStatus(status: string): void;
+	/** Annotate a still-running check, e.g. with why it has not started yet */
+	setNote(name: string, note: string): void;
+	clearNote(name: string): void;
 	removeCheck(name: string): void;
 	stop(): void;
 }
@@ -212,6 +215,8 @@ export function createSpinner(
 		return {
 			setPhase() {},
 			setStatus() {},
+			setNote() {},
+			clearNote() {},
 			removeCheck() {},
 			stop() {},
 		};
@@ -220,6 +225,7 @@ export function createSpinner(
 	let phase: "preflight" | "checks" = "preflight";
 	let status = "preflight";
 	const remaining = new Set(checkNames);
+	const notes = new Map<string, string>();
 
 	const interval = setInterval(() => {
 		const el = elapsed(startTime);
@@ -228,7 +234,11 @@ export function createSpinner(
 		if (phase === "preflight") {
 			text = `${el}s ${status}`;
 		} else if (remaining.size > 0) {
-			text = `${el}s ${[...remaining].join(", ")}`;
+			const labels = [...remaining].map((name) => {
+				const note = notes.get(name);
+				return note ? `${name} (${note})` : name;
+			});
+			text = `${el}s ${labels.join(", ")}`;
 		} else {
 			return;
 		}
@@ -245,8 +255,15 @@ export function createSpinner(
 		setStatus(s) {
 			status = s;
 		},
+		setNote(name, note) {
+			notes.set(name, note);
+		},
+		clearNote(name) {
+			notes.delete(name);
+		},
 		removeCheck(name) {
 			remaining.delete(name);
+			notes.delete(name);
 		},
 		stop() {
 			clearInterval(interval);

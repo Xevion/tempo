@@ -30,6 +30,7 @@ export type {
 	Hooks,
 	InferFlags,
 	InlineCommandSpec,
+	LockSpec,
 	ParallelCommandSpec,
 	PreflightDef,
 	ResolvedConfig,

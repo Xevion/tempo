@@ -1,4 +1,5 @@
 import { getLogger } from "@logtape/logtape";
+import { lockFileFor } from "../lock.ts";
 import { emitJson, nowIso, type OutputJsonRecord } from "../logging/json.ts";
 import { run, runPiped } from "../proc.ts";
 import {
@@ -53,9 +54,10 @@ export async function runSequential(
 		const { cmd, opts: cmdOpts } = resolveCommandDef(def);
 		const cwd = resolveCwd(config.rootDir, cmdOpts.cwd, sub.cwd);
 		const finalCmd = appendPassthrough(cmd, passthrough);
+		const lock = lockFileFor(config.rootDir, sub.lock, cmdOpts.lock);
 
 		if (config.json) {
-			const result = runPiped(finalCmd, { cwd });
+			const result = runPiped(finalCmd, { cwd, lock });
 			const ts = nowIso();
 			for (const stream of ["stdout", "stderr"] as const) {
 				for (const line of result[stream].split("\n")) {
@@ -74,7 +76,7 @@ export async function runSequential(
 				return result.exitCode;
 			}
 		} else {
-			run(finalCmd, { cwd });
+			run(finalCmd, { cwd, lock });
 		}
 	}
 

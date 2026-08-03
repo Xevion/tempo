@@ -142,15 +142,22 @@ async function collectResults(
 	checks: CheckEntry[],
 	config: ResolvedConfig,
 	envOverrides: Record<string, string>,
-	startTime: number,
 	hookCtx: HookContext,
 	spinner: ReturnType<typeof createSpinner>,
 ): Promise<{ results: Map<string, CollectResult>; hasFailure: boolean }> {
+	// Only the live spinner can carry a status note; otherwise check-spawn prints its own line.
+	const hasSpinner =
+		isInteractive(config) && !config.json && !config.check?.renderer;
 	const { promises, fallbacks } = spawnChecks(
 		checks,
 		config,
 		envOverrides,
-		startTime,
+		hasSpinner
+			? {
+					waiting: (name, note) => spinner.setNote(name, note),
+					acquired: (name) => spinner.clearNote(name),
+				}
+			: undefined,
 	);
 
 	const results = new Map<string, CollectResult>();
@@ -254,7 +261,6 @@ export async function runCheck(
 		checks,
 		config,
 		envOverrides,
-		startTime,
 		baseHookCtx,
 		spinner,
 	);

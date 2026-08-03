@@ -2,6 +2,7 @@ import {
 	DEFAULT_AUTOFIX,
 	FORMAT_APPLY,
 	FORMAT_CHECK,
+	type LockSpec,
 	type SubsystemConfig,
 } from "../types.ts";
 
@@ -10,6 +11,8 @@ export interface GradlePresetOptions {
 	quiet?: boolean;
 	configurationCache?: boolean;
 	subprojects?: string[];
+	/** Serialize these commands against every other tempo-run gradle invocation in the project. */
+	lock?: LockSpec;
 }
 
 export function gradle(options?: GradlePresetOptions): SubsystemConfig {
@@ -28,6 +31,7 @@ export function gradle(options?: GradlePresetOptions): SubsystemConfig {
 
 	return {
 		...(options?.cwd && { cwd: options.cwd }),
+		...(options?.lock && { lock: options.lock }),
 		aliases: ["gradle", "kt", "kotlin"],
 		commands: {
 			[FORMAT_CHECK]: `./gradlew spotlessCheck ktlintCheck${suffix}`,

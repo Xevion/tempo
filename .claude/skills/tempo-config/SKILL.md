@@ -57,6 +57,7 @@ subsystems: {
     cwd: "web",                       // working directory (relative to project root)
     alwaysRun: false,                 // if true, always included in tempo check
     requires: ["bun"],                // tools that must be on PATH
+    lock: true,                       // serialize against other tempo processes in this project
     commands: {
       // String shorthand — split on whitespace
       "format-check": "bunx biome check .",
@@ -70,6 +71,7 @@ subsystems: {
         warnIfExitCode: 2,             // treat as warning, not failure
         timeout: 120,                  // kill after N seconds
         requires: ["biome"],           // per-command tool requirements (string shorthand)
+        lock: ".gradle/build.lock",    // named lockfile, overriding the subsystem's
       },
       // Tool requirements can also use object form with install hints
       audit: {
@@ -91,6 +93,7 @@ subsystems: {
 - `alwaysRun: true` subsystems run even when other targets are specified (use for security audits, etc.)
 - `requires` checks tool availability before running; skips with a warning if missing
 - Command `env` is merged on top of `process.env`, not replacing it
+- `lock` serializes a command against every other tempo process in the same project, for toolchains whose incremental caches two concurrent invocations would corrupt. `true` derives a lockfile from the project root, a string names one relative to it (so other tools can `flock` the same path). A blocked command waits and reports the wait; it never fails. Requires `flock(1)`; without it everything runs unlocked after one warning
 
 ## Presets
 
@@ -153,6 +156,7 @@ Provides: `format-check`, `format-apply`, `lint`, `build`, `test` with `goimport
 | `quiet` | `boolean` | `true` | Add `--quiet` |
 | `configurationCache` | `boolean` | `true` | Enable `--configuration-cache` |
 | `subprojects` | `string[]` | — | Subproject targets for compile |
+| `lock` | `boolean \| string` | — | Serialize every command in the subsystem on one lockfile |
 
 Provides: `format-check`, `format-apply`, `lint`, `compile`, `test` with Spotless, ktlint, Detekt, Gradle.
 

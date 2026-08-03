@@ -1,6 +1,8 @@
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import type { Readable } from "node:stream";
 import { TempoRunError } from "./errors.ts";
 import { elapsed, exitCodeForSignal, RESET_TERMINAL } from "./fmt.ts";
+import { lockArgv, noteLockWait } from "./lock.ts";
 import { pipeJsonLines } from "./logging/json.ts";
 import type { CollectResult, SignalStrategy } from "./types.ts";
 
@@ -79,6 +81,13 @@ export async function gracefulKill(
 /** Convert a command to spawn args. Strings run via sh -c, arrays exec directly. */
 export function resolveCmd(cmd: string | string[]): string[] {
 	return typeof cmd === "string" ? ["sh", "-c", cmd] : cmd;
+}
+
+/** Wrap a synchronous command in its lock, announcing the wait when one is already held. */
+function blockingLock(args: string[], lockFile?: string): string[] {
+	if (!lockFile) return args;
+	noteLockWait(lockFile);
+	return lockArgv(lockFile, args);
 }
 
 export class ProcessGroup {
@@ -342,9 +351,9 @@ export class ProcessGroup {
 /** Synchronous execution with inherited stdio — throws TempoRunError on failure */
 export function run(
 	cmd: string | string[],
-	options?: { cwd?: string; env?: Record<string, string> },
+	options?: { cwd?: string; env?: Record<string, string>; lock?: string },
 ): void {
-	const args = resolveCmd(cmd);
+	const args = blockingLock(resolveCmd(cmd), options?.lock);
 	const result = spawnSync(args[0] as string, args.slice(1), {
 		cwd: options?.cwd,
 		env: { ...process.env, ...options?.env },
@@ -358,9 +367,9 @@ export function run(
 /** Synchronous execution with piped output */
 export function runPiped(
 	cmd: string | string[],
-	options?: { cwd?: string; env?: Record<string, string> },
+	options?: { cwd?: string; env?: Record<string, string>; lock?: string },
 ): { stdout: string; stderr: string; exitCode: number } {
-	const args = resolveCmd(cmd);
+	const args = blockingLock(resolveCmd(cmd), options?.lock);
 	const result = spawnSync(args[0] as string, args.slice(1), {
 		cwd: options?.cwd,
 		env: { ...process.env, ...options?.env },
@@ -373,23 +382,83 @@ export function runPiped(
 	};
 }
 
-/** Async execution with piped output and timing */
+/** Interval between lock-wait notifications, and the delay before the first one */
+const LOCK_WAIT_NOTICE_MS = 1000;
+
+export interface LockOptions {
+	/** Absolute path of the lockfile to hold for the command's lifetime */
+	file: string;
+	/** Called every second while still blocked, with the wait so far in milliseconds */
+	onWait?: (waitedMs: number) => void;
+	/** Called once the lock is held, with the total wait in milliseconds */
+	onAcquire?: (waitedMs: number) => void;
+}
+
+/**
+ * Wait for the locked command to signal acquisition on its ack pipe.
+ * Resolves early if the process dies first, so a failed spawn never hangs the caller.
+ */
+function awaitLockAck(
+	proc: ChildProcess,
+	exitPromise: Promise<number>,
+	lock: LockOptions,
+): Promise<number> {
+	const ack = proc.stdio[3] as Readable | null | undefined;
+	if (!ack) return Promise.resolve(0);
+
+	const start = Date.now();
+	return new Promise<number>((resolve) => {
+		let settled = false;
+		const notice = setInterval(() => {
+			lock.onWait?.(Date.now() - start);
+		}, LOCK_WAIT_NOTICE_MS);
+		const done = () => {
+			if (settled) return;
+			settled = true;
+			clearInterval(notice);
+			const waited = Date.now() - start;
+			// Keep the pipe flowing but unread, so a command that writes to fd 3 never blocks.
+			ack.removeAllListeners("data");
+			ack.resume();
+			lock.onAcquire?.(waited);
+			resolve(waited);
+		};
+		ack.once("data", done);
+		ack.once("end", done);
+		ack.once("error", done);
+		exitPromise.then(done);
+	});
+}
+
+/** Async execution with piped output and timing. Timing starts once any lock is held. */
 export async function spawnCollect(
 	cmd: string | string[],
-	startTime: number,
 	options?: {
 		cwd?: string;
 		env?: Record<string, string>;
 		name?: string;
 		timeout?: number;
+		lock?: LockOptions;
 	},
 ): Promise<CollectResult> {
-	const args = resolveCmd(cmd);
+	const lock = options?.lock;
+	const args = lock
+		? lockArgv(lock.file, resolveCmd(cmd), { ack: true })
+		: resolveCmd(cmd);
 	const proc = spawn(args[0] as string, args.slice(1), {
 		cwd: options?.cwd,
 		env: { ...process.env, ...options?.env },
-		stdio: ["ignore", "pipe", "pipe"],
+		stdio: lock
+			? ["ignore", "pipe", "pipe", "pipe"]
+			: ["ignore", "pipe", "pipe"],
 	}) as ChildProcess;
+
+	const exitPromise = onExit(proc);
+	const stdoutPromise = streamToString(proc.stdout);
+	const stderrPromise = streamToString(proc.stderr);
+
+	const waitedMs = lock ? await awaitLockAck(proc, exitPromise, lock) : 0;
+	const startTime = Date.now();
 
 	let timedOut = false;
 	let killTimer: ReturnType<typeof setTimeout> | undefined;
@@ -403,9 +472,9 @@ export async function spawnCollect(
 	}
 
 	const [exitCode, stdout, stderrRaw] = await Promise.all([
-		onExit(proc),
-		streamToString(proc.stdout),
-		streamToString(proc.stderr),
+		exitPromise,
+		stdoutPromise,
+		stderrPromise,
 	]);
 	if (killTimer) clearTimeout(killTimer);
 	cancelEscalation?.();
@@ -421,6 +490,7 @@ export async function spawnCollect(
 		stderr,
 		exitCode: timedOut ? 1 : exitCode,
 		elapsed: elapsed(startTime),
+		...(waitedMs >= 100 && { lockWait: (waitedMs / 1000).toFixed(1) }),
 	};
 }
 

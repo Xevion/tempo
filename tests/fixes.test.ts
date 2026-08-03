@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,7 +9,7 @@ import {
 } from "../src/errors.ts";
 import { newestMtime } from "../src/preflight.ts";
 import { spawnCollect } from "../src/proc.ts";
-import { requireDockerDaemon } from "../src/tools.ts";
+import { hasTool, requireDockerDaemon } from "../src/tools.ts";
 
 describe("preflight.newestMtime", () => {
 	test("returns 0 and warns when directory is missing", () => {
@@ -39,8 +39,7 @@ describe("proc.spawnCollect", () => {
 		// Use `exec sleep` so sh replaces itself with the sleep process —
 		// otherwise SIGTERM to sh doesn't propagate to sleep and the test hangs
 		// on stream close waiting for the graceful-kill fallback.
-		const start = Date.now();
-		const result = await spawnCollect(["sh", "-c", "exec sleep 10"], start, {
+		const result = await spawnCollect(["sh", "-c", "exec sleep 10"], {
 			timeout: 0.2,
 		});
 		expect(result.exitCode).toBe(1);
@@ -49,12 +48,38 @@ describe("proc.spawnCollect", () => {
 
 	test("returns promptly after timeout (no leaked SIGKILL timer)", async () => {
 		const t0 = Date.now();
-		await spawnCollect(["sh", "-c", "exec sleep 10"], t0, { timeout: 0.1 });
+		await spawnCollect(["sh", "-c", "exec sleep 10"], { timeout: 0.1 });
 		const elapsed = Date.now() - t0;
 		// The spawnCollect should return shortly after SIGTERM, not 3s later.
 		// A leaked SIGKILL timer wouldn't block the await, but confirms
 		// the timeout path completes normally.
 		expect(elapsed).toBeLessThan(3000);
+	}, 10000);
+});
+
+describe("proc.spawnCollect lock", () => {
+	test("serializes commands sharing a lockfile and reports the wait", async () => {
+		if (!hasTool("flock")) return;
+		const dir = mkdtempSync(join(tmpdir(), "tempo-lock-"));
+		try {
+			const lockFile = join(dir, "build.lock");
+			const marker = join(dir, "order");
+			const lock = { file: lockFile };
+			const held = spawnCollect(
+				["sh", "-c", `printf a >> ${marker}; sleep 0.5; printf b >> ${marker}`],
+				{ lock },
+			);
+			await new Promise((r) => setTimeout(r, 150));
+			const queued = spawnCollect(["sh", "-c", `printf c >> ${marker}`], {
+				lock,
+			});
+			const [, second] = await Promise.all([held, queued]);
+
+			expect(readFileSync(marker, "utf8")).toBe("abc");
+			expect(second.lockWait).toBeDefined();
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	}, 10000);
 });
 

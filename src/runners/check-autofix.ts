@@ -1,6 +1,7 @@
 import type { Logger } from "@logtape/logtape";
 import { TempoRunError } from "../errors.ts";
 import { c, isInteractive } from "../fmt.ts";
+import { lockFileFor } from "../lock.ts";
 import { drainAsCompleted, run } from "../proc.ts";
 import { resolveCommandDef, resolveCwd } from "../resolve.ts";
 import { checkMissingTools } from "../tools.ts";
@@ -20,12 +21,13 @@ function applyFix(
 	const fixDef = sub.commands[fixAction];
 	if (!fixDef) return false;
 	if (checkMissingTools(sub.requires, fixDef)) return false;
-	const { cmd } = resolveCommandDef(fixDef);
+	const { cmd, opts } = resolveCommandDef(fixDef);
 	logger.info("fix {target}", { target: `${subsystem}:${fixAction}` });
 	try {
 		run(cmd, {
 			cwd: resolveCwd(config.rootDir, undefined, sub.cwd),
 			env: envOverrides,
+			lock: lockFileFor(config.rootDir, sub.lock, opts.lock),
 		});
 		return true;
 	} catch (err) {
@@ -82,12 +84,13 @@ function tryFixFailedCheck(
 	const fixDef = sub.commands[fixAction];
 	if (!fixDef) return null;
 
-	const { cmd } = resolveCommandDef(fixDef);
+	const { cmd, opts } = resolveCommandDef(fixDef);
 	logger.info("fix {target}", { target: `${check.subsystem}:${fixAction}` });
 	try {
 		run(cmd, {
 			cwd: resolveCwd(config.rootDir, undefined, sub.cwd),
 			env: envOverrides,
+			lock: lockFileFor(config.rootDir, sub.lock, opts.lock),
 		});
 		return check;
 	} catch (err) {
@@ -135,12 +138,10 @@ export async function runFixOnFail(
 
 	// Re-verify fixed checks
 	logger.info("re-verifying fixed checks...");
-	const reStartTime = Date.now();
 	const { promises: rePromises, fallbacks: reFallbacks } = spawnChecks(
 		fixedChecks,
 		config,
 		envOverrides,
-		reStartTime,
 	);
 
 	let hasFailure = false;

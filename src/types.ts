@@ -13,6 +13,12 @@ export type ToolRequirement = string | { tool: string; hint?: string };
 /** String shorthand, array, or full object command definition */
 export type CommandDef = string | string[] | CommandObject;
 
+/**
+ * Cross-process exclusion for commands that cannot safely overlap.
+ * `true` derives a lockfile from the project root, a string names one relative to it.
+ */
+export type LockSpec = boolean | string;
+
 export interface CommandObject {
 	cmd: string | string[];
 	env?: Record<string, string>;
@@ -21,6 +27,8 @@ export interface CommandObject {
 	timeout?: number;
 	/** Tool names that must be on PATH. Check is skipped with a warning if any are missing. */
 	requires?: ToolRequirement[];
+	/** Hold an exclusive lock while this runs. Overrides the subsystem's lock. */
+	lock?: LockSpec;
 }
 
 export interface SubsystemConfig<TCommands extends string = string> {
@@ -29,6 +37,8 @@ export interface SubsystemConfig<TCommands extends string = string> {
 	alwaysRun?: boolean;
 	/** Tool names required by all commands in this subsystem. Merged with per-command requires. */
 	requires?: ToolRequirement[];
+	/** Hold an exclusive lock while any command in this subsystem runs. */
+	lock?: LockSpec;
 	commands?: Record<TCommands, CommandDef>;
 	autoFix?: Partial<Record<NoInfer<TCommands>, NoInfer<TCommands>>>;
 }
@@ -230,8 +240,10 @@ export interface CollectResult {
 	stdout: string;
 	stderr: string;
 	exitCode: number;
-	/** Seconds with 1 decimal, e.g. "1.2" */
+	/** Seconds with 1 decimal, e.g. "1.2" — measured from acquisition, excluding any lock wait */
 	elapsed: string;
+	/** Seconds spent blocked on a lock before the command started, when that was measurable */
+	lockWait?: string;
 }
 
 export type SignalStrategy = "natural" | "graceful" | "immediate";
