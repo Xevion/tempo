@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/Xevion/tempo/compare/v0.1.6...v0.1.7) (2026-08-21)
+
+
+### Bug Fixes
+
+* register module hooks without the deprecated loader API ([7990cf2](https://github.com/Xevion/tempo/commit/7990cf26e4a6ff6a6a2b5a6799e2ae7ef454eb73))
+
 ## [0.1.6](https://github.com/Xevion/tempo/compare/v0.1.5...v0.1.6) (2026-08-21)
 
 
