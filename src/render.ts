@@ -16,6 +16,8 @@ function describe(outcome: Outcome): { mark: string; note: string } {
 	switch (outcome.kind) {
 		case "ok":
 			return { mark: c.green("✓"), note: c.dim(`(${seconds(outcome.ms)})`) };
+		case "cached":
+			return { mark: c.green("✓"), note: c.dim("(cached)") };
 		case "fail":
 			return {
 				mark: c.red("✗"),
@@ -46,7 +48,9 @@ function renderSummary(
 	ms: number,
 	write: (line: string) => void,
 ): void {
-	const passed = [...outcomes.values()].filter((o) => o.kind === "ok").length;
+	const passed = [...outcomes.values()].filter(
+		(o) => o.kind === "ok" || o.kind === "cached",
+	).length;
 	const label = `${passed}/${outcomes.size} passed`;
 	write("");
 	write(`${ok ? c.green(label) : c.red(label)} ${c.dim(`(${seconds(ms)})`)}`);

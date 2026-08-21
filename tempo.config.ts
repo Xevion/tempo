@@ -5,6 +5,13 @@ const build = task({
 	name: "pkg:build",
 	body: "bun run build",
 	tags: ["build"],
+	inputs: [
+		"src/**/*.ts",
+		"scripts/*.mjs",
+		"package.json",
+		"tsconfig.build.json",
+	],
+	outputs: ["dist/**/*.mjs", "dist/**/*.d.ts"],
 });
 
 export default defineConfig({

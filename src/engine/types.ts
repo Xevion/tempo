@@ -36,6 +36,10 @@ export interface Task {
 	env?: Record<string, string>;
 	/** Long-lived. Never a valid dependency of a non-persistent task. */
 	persistent: boolean;
+	/** Globs whose contents decide whether this task is already up to date. */
+	inputs?: string[];
+	/** Globs that must still exist for a cache hit to be honoured. */
+	outputs?: string[];
 	/** Gates dependents on serving rather than on spawning. */
 	readyWhen?: (ctx: RunContext) => Promise<boolean> | boolean;
 	readyTimeoutMs?: number;
@@ -75,6 +79,7 @@ export class GraphError extends Error {
 
 export type Outcome =
 	| { kind: "ok"; code: 0; ms: number }
+	| { kind: "cached"; ms: number }
 	| { kind: "fail"; code: number; ms: number; error?: string }
 	| { kind: "skip"; reason: string; missing: Requirement[] }
 	| { kind: "blocked"; by: string }

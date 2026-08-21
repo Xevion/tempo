@@ -16,7 +16,30 @@ interface GlobalFlags {
 	configPath?: string;
 	json: boolean;
 	dryRun: boolean;
+	noCache: boolean;
 	concurrency?: number;
+}
+
+/** Apply a valueless global flag, reporting whether it matched. */
+function applyBooleanFlag(arg: string, globals: GlobalFlags): boolean {
+	if (arg === "--json") globals.json = true;
+	else if (arg === "--dry-run") globals.dryRun = true;
+	else if (arg === "--no-cache") globals.noCache = true;
+	else return false;
+	return true;
+}
+
+/** Apply a global flag that consumes the next argument. */
+function applyValueFlag(
+	arg: string,
+	value: string | undefined,
+	globals: GlobalFlags,
+): boolean {
+	if (arg === "--config") globals.configPath = value;
+	else if (arg === "--concurrency" || arg === "-c") {
+		globals.concurrency = Number(value);
+	} else return false;
+	return true;
 }
 
 /** Pull tempo's own flags out before cleye sees them, so `--` stays intact. */
@@ -24,21 +47,26 @@ function extractGlobals(argv: string[]): {
 	globals: GlobalFlags;
 	rest: string[];
 } {
-	const globals: GlobalFlags = { json: false, dryRun: false };
+	const globals: GlobalFlags = {
+		json: false,
+		dryRun: false,
+		noCache: false,
+	};
 	const rest: string[] = [];
 
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i];
+		if (arg === undefined) continue;
 		if (arg === "--") {
 			rest.push(...argv.slice(i));
 			break;
 		}
-		if (arg === "--json") globals.json = true;
-		else if (arg === "--dry-run") globals.dryRun = true;
-		else if (arg === "--config") globals.configPath = argv[++i];
-		else if (arg === "--concurrency" || arg === "-c") {
-			globals.concurrency = Number(argv[++i]);
-		} else if (arg !== undefined) rest.push(arg);
+		if (applyBooleanFlag(arg, globals)) continue;
+		if (applyValueFlag(arg, argv[i + 1], globals)) {
+			i++;
+			continue;
+		}
+		rest.push(arg);
 	}
 	return { globals, rest };
 }
@@ -127,6 +155,8 @@ async function execute(
 		const result = await run(graph, runSet, {
 			concurrency: globals.concurrency ?? config.concurrency,
 			requirementPolicy: config.isCI ? "fail" : undefined,
+			rootDir: config.rootDir,
+			cache: !globals.noCache,
 			signal: controller.signal,
 			onEvent: sink,
 		});

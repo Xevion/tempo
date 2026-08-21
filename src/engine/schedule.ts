@@ -1,4 +1,10 @@
 import {
+	fingerprint,
+	isCacheable,
+	isFresh,
+	writeFingerprint,
+} from "./cache.ts";
+import {
 	captureCommand,
 	describeRequirement,
 	exitCode,
@@ -27,6 +33,10 @@ export interface RunOptions {
 	signal?: AbortSignal;
 	onEvent?: EventSink;
 	requirementPolicy?: RequirementPolicy;
+	/** Root for resolving input and output globs, and for the cache directory. */
+	rootDir?: string;
+	/** Set false to recompute every task regardless of its fingerprint. */
+	cache?: boolean;
 }
 
 export interface RunResult {
@@ -85,6 +95,22 @@ function defaultPolicy(): RequirementPolicy {
 	return process.env.CI ? "fail" : "warn";
 }
 
+/** Map an exit code to an outcome, preserving cancellation. */
+function codeOutcome(code: number, aborted: boolean, ms: number): Outcome {
+	if (aborted && code !== 0) return { kind: "cancelled", ms };
+	return code === 0 ? { kind: "ok", code: 0, ms } : { kind: "fail", code, ms };
+}
+
+function errorOutcome(err: unknown, aborted: boolean, ms: number): Outcome {
+	if (aborted) return { kind: "cancelled", ms };
+	return {
+		kind: "fail",
+		code: 1,
+		ms,
+		error: err instanceof Error ? err.message : String(err),
+	};
+}
+
 export function planLayers(
 	graph: Graph,
 	runSet: ReadonlySet<string>,
@@ -111,6 +137,8 @@ export async function run(
 	}
 
 	const policy = opts.requirementPolicy ?? defaultPolicy();
+	const rootDir = opts.rootDir ?? process.cwd();
+	const cacheEnabled = opts.cache !== false;
 	const semaphore = new Semaphore(opts.concurrency ?? DEFAULT_CONCURRENCY);
 	const edgesByTask = graph.edgesWithin(runSet);
 	const outcomes = new Map<string, Outcome>();
@@ -162,34 +190,25 @@ export async function run(
 			: { kind: "fail", code: 1, ms: 0, error: `missing ${described}` };
 	};
 
-	const executeBody = async (t: Task): Promise<void> => {
+	const executeBody = async (t: Task, stamp: string | null): Promise<void> => {
 		const release = t.persistent ? () => {} : await semaphore.acquire();
 		const began = performance.now();
 		emit({ type: "task-start", ts: nowIso(), task: t.name });
 		try {
 			const code = await runBody(t, controller.signal, emit, gates.get(t.name));
-			const ms = performance.now() - began;
-			if (controller.signal.aborted && code !== 0) {
-				settle(t.name, { kind: "cancelled", ms }, false);
-			} else if (code === 0) {
-				settle(t.name, { kind: "ok", code: 0, ms }, true);
-			} else {
-				settle(t.name, { kind: "fail", code, ms }, false);
+			const outcome = codeOutcome(
+				code,
+				controller.signal.aborted,
+				performance.now() - began,
+			);
+			// Only a clean success is worth remembering.
+			if (outcome.kind === "ok" && stamp) {
+				writeFingerprint(rootDir, t.name, stamp);
 			}
+			settle(t.name, outcome, outcome.kind === "ok");
 		} catch (err) {
 			const ms = performance.now() - began;
-			settle(
-				t.name,
-				controller.signal.aborted
-					? { kind: "cancelled", ms }
-					: {
-							kind: "fail",
-							code: 1,
-							ms,
-							error: err instanceof Error ? err.message : String(err),
-						},
-				false,
-			);
+			settle(t.name, errorOutcome(err, controller.signal.aborted, ms), false);
 		} finally {
 			release();
 		}
@@ -210,7 +229,17 @@ export async function run(
 			settle(t.name, blockedByRequirement, false);
 			return;
 		}
-		await executeBody(t);
+
+		// A cache hit is a success for dependents: the outputs are already there.
+		let stamp: string | null = null;
+		if (cacheEnabled && isCacheable(t)) {
+			stamp = fingerprint(t, rootDir);
+			if (isFresh(t, rootDir, stamp)) {
+				settle(t.name, { kind: "cached", ms: 0 }, true);
+				return;
+			}
+		}
+		await executeBody(t, stamp);
 	};
 
 	emit({ type: "run-start", ts: nowIso(), tasks: [...runSet].sort() });
@@ -230,7 +259,7 @@ export async function run(
 
 	const ms = performance.now() - startedAt;
 	const ok = [...outcomes.values()].every(
-		(o) => o.kind === "ok" || o.kind === "skip",
+		(o) => o.kind === "ok" || o.kind === "cached" || o.kind === "skip",
 	);
 	emit({ type: "run-end", ts: nowIso(), ok, ms });
 	return { outcomes, ok, ms };

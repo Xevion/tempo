@@ -1,4 +1,12 @@
 export {
+	fingerprint,
+	globFiles,
+	globToRegExp,
+	isCacheable,
+	isFresh,
+	outputsPresent,
+} from "./cache.ts";
+export {
 	captureCommand,
 	describeRequirement,
 	exitCode,
