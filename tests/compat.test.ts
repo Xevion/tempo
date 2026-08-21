@@ -230,12 +230,17 @@ export default defineConfig({
 	commands: {
 		probe: {
 			description: "Report which runtime is executing tempo",
-			run: () => {
+			// ctx is unannotated on purpose: it must be contextually typed, not implicitly any.
+			run: (ctx) => {
 				const runtime =
 					"Bun" in globalThis ? "bun" : "Deno" in globalThis ? "deno" : "node";
-				process.stdout.write("PROBE:" + runtime + "\\n");
+				const suffix: string = ctx.args.join(",");
+				process.stdout.write("PROBE:" + runtime + suffix + "\\n");
 				return 0;
 			},
+		},
+		group: {
+			nested: (ctx) => ctx.passthrough.length,
 		},
 	},
 });

@@ -397,9 +397,8 @@ export interface CommandSpec<
 /** A command entry: file path, bare function, or inline CommandSpec */
 export type CommandEntry =
 	| InlineCommandSpec
-	| ((
-			ctx: CommandContext<Record<never, CommandFlagDef>>,
-	  ) => Promise<number> | number)
+	// Must match SimpleCommandSpec's run exactly, or a spec object gets no contextual typing.
+	| ((ctx: CommandContext) => Promise<number> | number)
 	| string
 	| false
 	| CommandTree;
