@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.6](https://github.com/Xevion/tempo/compare/v0.1.5...v0.1.6) (2026-08-21)
+
+
+### Bug Fixes
+
+* bound the docker daemon probe so it cannot hang ([118efb9](https://github.com/Xevion/tempo/commit/118efb9f7b98e4d5ebb1f50d08665e6e9e234d25))
+* contextually type ctx in custom command definitions ([d961cf0](https://github.com/Xevion/tempo/commit/d961cf0621a3d85803795f97a990c3c666fbad74))
+
 ## [0.1.5](https://github.com/Xevion/tempo/compare/v0.1.4...v0.1.5) (2026-08-21)
 
 
