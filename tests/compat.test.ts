@@ -29,12 +29,8 @@ const PACK_TIMEOUT_MS = 300_000;
 /** All public subpath exports that must be importable */
 const SUBPATH_EXPORTS = [
 	"./src/index.ts",
-	"./src/proc.ts",
+	"./src/engine/index.ts",
 	"./src/fmt.ts",
-	"./src/preflight.ts",
-	"./src/targets.ts",
-	"./src/watch.ts",
-	"./src/octocov.ts",
 	"./src/config.ts",
 ];
 
@@ -221,37 +217,33 @@ describe("cli entrypoint: source", () => {
 });
 
 /** Consumer config exercising the public entrypoint and reporting its runtime. */
-const PROBE_CONFIG = `import { defineConfig } from "@xevion/tempo";
+const PROBE_CONFIG = `import { defineConfig, task } from "@xevion/tempo";
 
 export default defineConfig({
-	subsystems: {
-		probe: { commands: { check: "true" } },
-	},
-	commands: {
-		probe: {
-			description: "Report which runtime is executing tempo",
+	tasks: [
+		task({
+			name: "probe",
+			tags: ["probe"],
 			// ctx is unannotated on purpose: it must be contextually typed, not implicitly any.
-			run: (ctx) => {
+			body: (ctx) => {
 				const runtime =
 					"Bun" in globalThis ? "bun" : "Deno" in globalThis ? "deno" : "node";
-				const suffix: string = ctx.args.join(",");
+				const suffix: string = ctx.signal.aborted ? "!" : "";
 				process.stdout.write("PROBE:" + runtime + suffix + "\\n");
 				return 0;
 			},
-		},
-		group: {
-			nested: (ctx) => ctx.passthrough.length,
-		},
-	},
+		}),
+	],
+	commands: { probe: { tags: ["probe"] } },
 });
 `;
 
 /** Imports the package with no node_modules present, forcing virtual module resolution. */
-const VIRTUAL_PROBE_CONFIG = `import { defineConfig } from "@xevion/tempo";
+const VIRTUAL_PROBE_CONFIG = `import { defineConfig, task } from "@xevion/tempo";
 
 export default defineConfig({
-	subsystems: { probe: { commands: { check: "true" } } },
-	commands: { check: { mode: "parallel", commandKey: "check" } },
+	tasks: [task({ name: "probe", body: "true", tags: ["check"] })],
+	commands: { check: { tags: ["check"] } },
 });
 `;
 

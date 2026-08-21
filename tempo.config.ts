@@ -1,89 +1,136 @@
-import { defineConfig, runners } from "./src/index.ts";
+import { defineConfig, task } from "./src/index.ts";
+
+/** Every packaging check reads dist, so they all order behind one build. */
+const build = task({
+	name: "pkg:build",
+	body: "bun run build",
+	tags: ["build"],
+});
 
 export default defineConfig({
-	subsystems: {
-		ts: {
-			aliases: ["typescript", "types"],
-			commands: {
-				"type-check": "bunx tsc --noEmit",
-			},
-		},
-		biome: {
-			aliases: ["lint", "web"],
-			commands: {
-				"format-check": "bunx biome check --error-on-warnings .",
-				"format-apply": "bunx biome check --write --error-on-warnings .",
-				"lint-check": "bunx biome lint --error-on-warnings .",
-				"lint-apply": "bunx biome lint --write --error-on-warnings .",
-			},
-			autoFix: {
-				"format-check": "format-apply",
-				"lint-check": "lint-apply",
-			},
-		},
-		knip: {
-			aliases: ["deadcode"],
-			commands: {
-				check: "bunx knip",
-			},
-		},
-		typos: {
-			aliases: ["spelling"],
-			commands: {
-				check: { cmd: "typos", requires: ["typos"] },
-			},
-		},
-		test: {
-			aliases: ["tests"],
-			commands: {
-				smoke: "bun test tests/smoke.test.ts",
-				"compat-bun":
-					"bun test tests/compat.test.ts --test-name-pattern 'cross-runtime: bun|no bun-specific'",
-				"compat-node": {
-					cmd: "bun test tests/compat.test.ts --test-name-pattern 'cross-runtime: node'",
-					requires: ["node"],
-				},
-				"compat-deno": {
-					cmd: "bun test tests/compat.test.ts --test-name-pattern 'cross-runtime: deno'",
-					requires: ["deno"],
-				},
-			},
-		},
-		ci: {
-			aliases: ["actions"],
-			commands: {
-				actionlint: { cmd: "actionlint", requires: ["actionlint"] },
-				zizmor: { cmd: "zizmor .github/", requires: ["zizmor"] },
-			},
-		},
-		pkg: {
-			aliases: ["package", "publish"],
-			commands: {
-				audit: "bun audit",
-				pack: "npm pack --dry-run",
-				publint: "bunx publint --strict",
-				attw: "bunx @arethetypeswrong/cli --pack .",
-			},
-		},
-	},
-	preflights: [
-		{
-			label: "dist build",
-			sources: { dir: "src", pattern: "**/*.ts" },
-			artifacts: { dir: "dist", pattern: "**/*.{mjs,d.ts}" },
-			regenerate: "bun run build",
-			reason: "the pkg checks inspect the packaged output",
-		},
+	tasks: [
+		build,
+
+		task({ name: "ts:type-check", body: "bunx tsc --noEmit", tags: ["check"] }),
+
+		task({
+			name: "biome:format",
+			body: "bunx biome check --error-on-warnings .",
+			tags: ["check"],
+		}),
+		task({
+			name: "biome:format-fix",
+			body: "bunx biome check --write --error-on-warnings .",
+			tags: ["format"],
+		}),
+		task({
+			name: "biome:lint",
+			body: "bunx biome lint --error-on-warnings .",
+			tags: ["check"],
+		}),
+		task({
+			name: "biome:lint-fix",
+			body: "bunx biome lint --write --error-on-warnings .",
+			tags: ["format"],
+			// Both writers touch the same files, so they must not run concurrently.
+			after: ["biome:format-fix"],
+		}),
+
+		task({ name: "knip:check", body: "bunx knip", tags: ["check"] }),
+		task({
+			name: "typos:check",
+			body: "typos",
+			tags: ["check"],
+			requires: [{ tool: "typos" }],
+		}),
+
+		task({
+			name: "test:engine",
+			body: "bun test tests/engine.test.ts",
+			tags: ["check"],
+		}),
+		task({
+			name: "test:smoke",
+			body: "bun test tests/smoke.test.ts",
+			tags: ["check"],
+		}),
+		task({
+			name: "test:compat-bun",
+			body: [
+				"bun",
+				"test",
+				"tests/compat.test.ts",
+				"--test-name-pattern",
+				"cross-runtime: bun|no bun-specific",
+			],
+			tags: ["check"],
+		}),
+		task({
+			name: "test:compat-node",
+			body: [
+				"bun",
+				"test",
+				"tests/compat.test.ts",
+				"--test-name-pattern",
+				"cross-runtime: node",
+			],
+			tags: ["check"],
+			requires: [{ tool: "node" }],
+		}),
+		task({
+			name: "test:compat-deno",
+			body: [
+				"bun",
+				"test",
+				"tests/compat.test.ts",
+				"--test-name-pattern",
+				"cross-runtime: deno",
+			],
+			tags: ["check"],
+			requires: [{ tool: "deno" }],
+		}),
+
+		task({
+			name: "ci:actionlint",
+			body: "actionlint",
+			tags: ["check"],
+			requires: [{ tool: "actionlint" }],
+		}),
+		task({
+			name: "ci:zizmor",
+			body: "zizmor .github/",
+			tags: ["check"],
+			requires: [{ tool: "zizmor" }],
+		}),
+
+		task({ name: "pkg:audit", body: "bun audit", tags: ["check"] }),
+		task({
+			name: "pkg:pack",
+			body: "npm pack --dry-run",
+			tags: ["check"],
+			needs: ["pkg:build"],
+		}),
+		task({
+			name: "pkg:publint",
+			body: "bunx publint --strict",
+			tags: ["check"],
+			needs: ["pkg:build"],
+		}),
+		task({
+			name: "pkg:attw",
+			body: "bunx @arethetypeswrong/cli --pack .",
+			tags: ["check"],
+			needs: ["pkg:build"],
+		}),
 	],
+
 	commands: {
-		check: runners.check({ autoFixStrategy: "fix-on-fail" }),
-		fmt: runners.sequential("format-apply", {
-			description: "Sequential per-subsystem formatting",
-			autoFixFallback: true,
-		}),
-		lint: runners.sequential("lint-check", {
-			description: "Sequential per-subsystem linting",
-		}),
-		"pre-commit": runners.preCommit(),
+		check: { description: "Run every check in parallel", tags: ["check"] },
+		fmt: {
+			description: "Apply every formatter",
+			tags: ["format"],
+			concurrency: 1,
+		},
+		build: { description: "Build the package", tags: ["build"] },
 	},
 });

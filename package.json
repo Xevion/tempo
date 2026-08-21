@@ -16,7 +16,7 @@
 		"clean": "rm -rf dist",
 		"typecheck": "tsc --noEmit",
 		"lint": "biome check --error-on-warnings .",
-		"build:js": "bun build src/index.ts src/proc.ts src/fmt.ts src/preflight.ts src/targets.ts src/watch.ts src/octocov.ts --outdir dist --root src --target node --format esm --packages external --splitting --entry-naming '[dir]/[name].mjs' --chunk-naming '[name]-[hash].mjs'",
+		"build:js": "bun build src/index.ts src/engine/index.ts src/fmt.ts --outdir dist --root src --target node --format esm --packages external --splitting --entry-naming '[dir]/[name].mjs' --chunk-naming '[name]-[hash].mjs'",
 		"build:cli": "bun build src/cli.ts --outfile dist/cli.mjs --target node --format esm --packages external --banner '#!/usr/bin/env sh\n\":\" //# ; exec \"$(command -v node || command -v bun)\" \"$0\" \"$@\"'",
 		"build:types": "tsc -p tsconfig.build.json && bun scripts/rewrite-dts.mjs",
 		"build": "bun run clean && bun run build:js && bun run build:cli && bun run build:types",
@@ -29,35 +29,15 @@
 			"bun": "./src/index.ts",
 			"default": "./dist/index.mjs"
 		},
-		"./proc": {
-			"types": "./dist/proc.d.ts",
-			"bun": "./src/proc.ts",
-			"default": "./dist/proc.mjs"
+		"./engine": {
+			"types": "./dist/engine/index.d.ts",
+			"bun": "./src/engine/index.ts",
+			"default": "./dist/engine/index.mjs"
 		},
 		"./fmt": {
 			"types": "./dist/fmt.d.ts",
 			"bun": "./src/fmt.ts",
 			"default": "./dist/fmt.mjs"
-		},
-		"./preflight": {
-			"types": "./dist/preflight.d.ts",
-			"bun": "./src/preflight.ts",
-			"default": "./dist/preflight.mjs"
-		},
-		"./targets": {
-			"types": "./dist/targets.d.ts",
-			"bun": "./src/targets.ts",
-			"default": "./dist/targets.mjs"
-		},
-		"./watch": {
-			"types": "./dist/watch.d.ts",
-			"bun": "./src/watch.ts",
-			"default": "./dist/watch.mjs"
-		},
-		"./octocov": {
-			"types": "./dist/octocov.d.ts",
-			"bun": "./src/octocov.ts",
-			"default": "./dist/octocov.mjs"
 		}
 	},
 	"main": "./dist/index.mjs",
@@ -90,8 +70,6 @@
 	],
 	"dependencies": {
 		"@catppuccin/palette": "^1.8.0",
-		"@logtape/file": "^2.0.4",
-		"@logtape/logtape": "^2.0.4",
 		"ansis": "^4.2.0",
 		"cleye": "^2.3.0"
 	},
