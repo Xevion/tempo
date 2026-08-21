@@ -47,13 +47,27 @@ export async function initRegistration(): Promise<void> {
 			},
 		});
 	} else {
-		const { register } = await import("node:module");
+		const mod = await import("node:module");
 		const mapping = Object.fromEntries(
 			Object.entries(subpathExports).map(([spec, path]) => [
 				spec,
 				pathToFileURL(path).href,
 			]),
 		);
+
+		// registerHooks runs in-thread and needs no serialized loader; register is deprecated.
+		if (typeof mod.registerHooks === "function") {
+			mod.registerHooks({
+				resolve(specifier, context, nextResolve) {
+					const url = mapping[specifier];
+					return url
+						? { url, shortCircuit: true }
+						: nextResolve(specifier, context);
+				},
+			});
+			return;
+		}
+
 		const loaderCode = `
 			const mapping = ${JSON.stringify(mapping)};
 			export function resolve(specifier, context, nextResolve) {
@@ -63,6 +77,6 @@ export async function initRegistration(): Promise<void> {
 				return nextResolve(specifier, context);
 			}
 		`;
-		register(`data:text/javascript,${encodeURIComponent(loaderCode)}`);
+		mod.register(`data:text/javascript,${encodeURIComponent(loaderCode)}`);
 	}
 }

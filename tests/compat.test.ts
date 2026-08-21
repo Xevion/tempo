@@ -246,6 +246,15 @@ export default defineConfig({
 });
 `;
 
+/** Imports the package with no node_modules present, forcing virtual module resolution. */
+const VIRTUAL_PROBE_CONFIG = `import { defineConfig } from "@xevion/tempo";
+
+export default defineConfig({
+	subsystems: { probe: { commands: { check: "true" } } },
+	commands: { check: { mode: "parallel", commandKey: "check" } },
+});
+`;
+
 /** skipLibCheck stays off so shipped declarations are checked, not skipped. */
 const CONSUMER_TSCONFIG = `${JSON.stringify(
 	{
@@ -379,6 +388,34 @@ describe("cli entrypoint: packaged", () => {
 				NO_COLOR: "1",
 			});
 			expect(stdout).toContain("PROBE:");
+		},
+		PACK_TIMEOUT_MS,
+	);
+
+	test.skipIf(!hasNpm)(
+		"a config with no node_modules resolves under node without deprecation warnings",
+		() => {
+			// The virtual module path only runs when the package cannot be resolved normally.
+			packagedInstall();
+			const dir = mkdtempSync(join(tmpdir(), "tempo-virtual-"));
+			writeFileSync(join(dir, "tempo.config.ts"), VIRTUAL_PROBE_CONFIG);
+			const result = spawnSync(
+				"node",
+				[join(REPO_ROOT, "dist", "cli.mjs"), "check"],
+				{
+					cwd: dir,
+					stdio: ["ignore", "pipe", "pipe"],
+					env: { ...process.env, NO_COLOR: "1", TEMPO_REEXEC: "1" },
+				},
+			);
+			const stderr = result.stderr?.toString() ?? "";
+			rmSync(dir, { recursive: true, force: true });
+			if (result.status !== 0) {
+				throw new Error(
+					`virtual-module run failed (${result.status}): ${result.stdout?.toString()}${stderr}`,
+				);
+			}
+			expect(stderr).not.toContain("DeprecationWarning");
 		},
 		PACK_TIMEOUT_MS,
 	);
