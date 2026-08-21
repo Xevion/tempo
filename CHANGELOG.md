@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.1.5](https://github.com/Xevion/tempo/compare/v0.1.4...v0.1.5) (2026-08-21)
+
+
+### Features
+
+* cross-process build lock for check, fix and pre-commit commands ([d664fc9](https://github.com/Xevion/tempo/commit/d664fc9a979203a92532ef3fb642c476d5d0f144))
+
+
+### Bug Fixes
+
+* exit 0 on interrupted dev sessions, and trim comments to the length rule ([b70371f](https://github.com/Xevion/tempo/commit/b70371f176e0db9ff694710fdc626c21d3e42032))
+* process termination, exit-code truthfulness, and shipped declarations ([094d692](https://github.com/Xevion/tempo/commit/094d6927f08e4c1b12f96c2753aaf10bb585f93b))
+
+
+### Miscellaneous
+
+* **ci:** bump the github-actions group across 1 directory with 3 updates ([#14](https://github.com/Xevion/tempo/issues/14)) ([7e33ec7](https://github.com/Xevion/tempo/commit/7e33ec7fb7e0feded09ad44c1979b93ca1c5622a))
+
 ## [0.1.4](https://github.com/Xevion/tempo/compare/v0.1.3...v0.1.4) (2026-04-10)
 
 
