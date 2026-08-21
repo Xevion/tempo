@@ -22,6 +22,7 @@ export {
 	type RunResult,
 	run,
 } from "./schedule.ts";
+export { type SuperviseHooks, supervise } from "./supervise.ts";
 export {
 	type Body,
 	type Captured,
@@ -35,3 +36,4 @@ export {
 	type Task,
 	TaskFailure,
 } from "./types.ts";
+export { type Watcher, type WatchSpec, watchPaths } from "./watch.ts";

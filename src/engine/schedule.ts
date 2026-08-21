@@ -13,6 +13,7 @@ import {
 	Spawned,
 } from "./exec.ts";
 import type { Graph } from "./graph.ts";
+import { supervise } from "./supervise.ts";
 import {
 	type EngineEvent,
 	type EventSink,
@@ -37,6 +38,12 @@ export interface RunOptions {
 	rootDir?: string;
 	/** Set false to recompute every task regardless of its fingerprint. */
 	cache?: boolean;
+	/** Arguments appended to any task declaring `passthrough`. */
+	passthrough?: string[];
+	/** first-exits tears the run down as soon as any persistent task exits. */
+	exitBehavior?: "first-exits" | "all-exit";
+	/** Ask children for colour. Defaults to whether stderr is a terminal. */
+	color?: boolean;
 }
 
 export interface RunResult {
@@ -139,6 +146,9 @@ export async function run(
 	const policy = opts.requirementPolicy ?? defaultPolicy();
 	const rootDir = opts.rootDir ?? process.cwd();
 	const cacheEnabled = opts.cache !== false;
+	const passthrough = opts.passthrough ?? [];
+	const exitBehavior = opts.exitBehavior ?? "all-exit";
+	const color = opts.color ?? process.stderr.isTTY ?? false;
 	const semaphore = new Semaphore(opts.concurrency ?? DEFAULT_CONCURRENCY);
 	const edgesByTask = graph.edgesWithin(runSet);
 	const outcomes = new Map<string, Outcome>();
@@ -190,12 +200,73 @@ export async function run(
 			: { kind: "fail", code: 1, ms: 0, error: `missing ${described}` };
 	};
 
+	/** Re-run one dependency, honouring its cache. False means it failed. */
+	const rebuildOne = async (
+		dep: string,
+		sig: AbortSignal,
+	): Promise<boolean> => {
+		const d = graph.get(dep);
+		emit({ type: "task-start", ts: nowIso(), task: dep, persistent: false });
+
+		let stamp: string | null = null;
+		if (cacheEnabled && isCacheable(d)) {
+			stamp = fingerprint(d, rootDir);
+			if (isFresh(d, rootDir, stamp)) {
+				emit({
+					type: "task-settled",
+					ts: nowIso(),
+					task: dep,
+					outcome: { kind: "cached", ms: 0 },
+				});
+				return true;
+			}
+		}
+
+		const began = performance.now();
+		const code = await runBody(d, sig, emit, undefined, passthrough, color);
+		const outcome = codeOutcome(code, sig.aborted, performance.now() - began);
+		if (outcome.kind === "ok" && stamp) writeFingerprint(rootDir, dep, stamp);
+		emit({ type: "task-settled", ts: nowIso(), task: dep, outcome });
+		return outcome.kind === "ok";
+	};
+
+	/** Re-run a watched task's dependencies in dependency order. */
+	const rebuildDeps = async (t: Task, sig: AbortSignal): Promise<boolean> => {
+		const order = graph
+			.layers(runSet)
+			.flat()
+			.filter((n) => t.needs.includes(n));
+		for (const dep of order) {
+			if (!(await rebuildOne(dep, sig))) return false;
+		}
+		return true;
+	};
+
+	/** Watched tasks run under a supervisor; everything else runs once. */
+	const runSupervised = (t: Task, sig: AbortSignal): Promise<number> => {
+		if (!t.watch || !t.persistent) {
+			return runBody(t, sig, emit, gates.get(t.name), passthrough, color);
+		}
+		return supervise(t, sig, {
+			rootDir,
+			emit,
+			runBody: (s2) =>
+				runBody(t, s2, emit, gates.get(t.name), passthrough, color),
+			rebuild: (s2) => rebuildDeps(t, s2),
+		});
+	};
+
 	const executeBody = async (t: Task, stamp: string | null): Promise<void> => {
 		const release = t.persistent ? () => {} : await semaphore.acquire();
 		const began = performance.now();
-		emit({ type: "task-start", ts: nowIso(), task: t.name });
+		emit({
+			type: "task-start",
+			ts: nowIso(),
+			task: t.name,
+			persistent: t.persistent,
+		});
 		try {
-			const code = await runBody(t, controller.signal, emit, gates.get(t.name));
+			const code = await runSupervised(t, controller.signal);
 			const outcome = codeOutcome(
 				code,
 				controller.signal.aborted,
@@ -206,6 +277,8 @@ export async function run(
 				writeFingerprint(rootDir, t.name, stamp);
 			}
 			settle(t.name, outcome, outcome.kind === "ok");
+			// A dev session ends when its first long-lived process does.
+			if (t.persistent && exitBehavior === "first-exits") controller.abort();
 		} catch (err) {
 			const ms = performance.now() - began;
 			settle(t.name, errorOutcome(err, controller.signal.aborted, ms), false);
@@ -269,6 +342,7 @@ function buildContext(
 	t: Task,
 	signal: AbortSignal,
 	emit: (event: EngineEvent) => void,
+	color = false,
 ): RunContext {
 	return {
 		signal,
@@ -281,6 +355,7 @@ function buildContext(
 				cwd: t.cwd,
 				env: t.env,
 				signal,
+				color,
 				onLine: (stream, line) =>
 					emit({
 						type: "task-output",
@@ -371,8 +446,10 @@ async function runBody(
 	signal: AbortSignal,
 	emit: (event: EngineEvent) => void,
 	gate: Deferred<boolean> | undefined,
+	passthrough: string[] = [],
+	color = false,
 ): Promise<number> {
-	const ctx = buildContext(t, signal, emit);
+	const ctx = buildContext(t, signal, emit, color);
 	const began = performance.now();
 
 	// A persistent task releases dependents on readiness, not on exit.
@@ -381,10 +458,12 @@ async function runBody(
 	if (typeof t.body === "function") return runFunctionBody(t.body, ctx);
 
 	const { argv } = resolveArgv(t.body);
-	await using proc = new Spawned(argv, {
+	const full = t.passthrough ? [...argv, ...passthrough] : argv;
+	await using proc = new Spawned(full, {
 		cwd: t.cwd,
 		env: t.env,
 		signal,
+		color,
 		onLine: (stream, line) =>
 			emit({ type: "task-output", ts: nowIso(), task: t.name, stream, line }),
 	});

@@ -5,6 +5,8 @@
  * ports, not up front. What is fixed here is the engine's contract.
  */
 
+import type { WatchSpec } from "./watch.ts";
+
 /** A task body. All three forms are peers, not escape hatches. */
 export type Body =
 	| string
@@ -40,6 +42,10 @@ export interface Task {
 	inputs?: string[];
 	/** Globs that must still exist for a cache hit to be honoured. */
 	outputs?: string[];
+	/** Restart this task when the watched files change. Persistent tasks only. */
+	watch?: WatchSpec;
+	/** Append the run's passthrough arguments to this task's command. */
+	passthrough?: boolean;
 	/** Gates dependents on serving rather than on spawning. */
 	readyWhen?: (ctx: RunContext) => Promise<boolean> | boolean;
 	readyTimeoutMs?: number;
@@ -91,7 +97,8 @@ export type Outcome =
  */
 export type EngineEvent =
 	| { type: "run-start"; ts: string; tasks: string[] }
-	| { type: "task-start"; ts: string; task: string }
+	| { type: "task-start"; ts: string; task: string; persistent: boolean }
+	| { type: "task-restart"; ts: string; task: string; reason: string }
 	| { type: "task-ready"; ts: string; task: string; ms: number }
 	| { type: "task-log"; ts: string; task: string; message: string }
 	| {

@@ -61,37 +61,102 @@ function renderSummary(
  * channel. Child output is buffered and replayed only for failures, which is
  * what keeps a parallel run readable.
  */
+/** Stable per-task colour so a multiplexed pane stays readable. */
+const PREFIX_COLORS = [
+	c.blue,
+	c.green,
+	c.yellow,
+	c.magenta,
+	c.cyan,
+	c.red,
+] as const;
+
+function prefixFor(task: string, order: Map<string, number>): string {
+	if (!order.has(task)) order.set(task, order.size);
+	const paint = PREFIX_COLORS[(order.get(task) ?? 0) % PREFIX_COLORS.length];
+	return `${(paint ?? c.blue)(task)} ${c.dim("│")}`;
+}
+
+/**
+ * Human-readable rendering, written to stderr so stdout stays a clean data
+ * channel.
+ *
+ * A one-shot task buffers its output and replays it only on failure, which is
+ * what keeps a parallel check readable. A persistent task streams live behind a
+ * source prefix, because its output is the point.
+ */
+interface TtyState {
+	buffered: Map<string, string[]>;
+	outcomes: Map<string, Outcome>;
+	live: Set<string>;
+	order: Map<string, number>;
+	write: (line: string) => void;
+}
+
+function handleOutput(task: string, line: string, state: TtyState): void {
+	if (state.live.has(task)) {
+		state.write(`${prefixFor(task, state.order)} ${line}`);
+		return;
+	}
+	const lines = state.buffered.get(task) ?? [];
+	lines.push(line);
+	state.buffered.set(task, lines);
+}
+
+function handleSettled(task: string, outcome: Outcome, state: TtyState): void {
+	state.outcomes.set(task, outcome);
+	const { mark, note } = describe(outcome);
+	state.write(`${mark} ${task} ${note}`);
+	if (outcome.kind === "fail") {
+		renderFailure(outcome, state.buffered.get(task) ?? [], state.write);
+	}
+	state.buffered.delete(task);
+}
+
+/**
+ * Human-readable rendering, written to stderr so stdout stays a clean data
+ * channel.
+ *
+ * A one-shot task buffers its output and replays it only on failure, which is
+ * what keeps a parallel check readable. A persistent task streams live behind a
+ * source prefix, because its output is the point.
+ */
 export function ttySink(): EventSink {
-	const buffered = new Map<string, string[]>();
-	const outcomes = new Map<string, Outcome>();
-	const write = (line: string) => process.stderr.write(`${line}\n`);
+	const state: TtyState = {
+		buffered: new Map(),
+		outcomes: new Map(),
+		live: new Set(),
+		order: new Map(),
+		write: (line) => process.stderr.write(`${line}\n`),
+	};
 
 	return (event: EngineEvent) => {
-		if (event.type === "task-output") {
-			const lines = buffered.get(event.task) ?? [];
-			lines.push(event.line);
-			buffered.set(event.task, lines);
-			return;
-		}
-		if (event.type === "task-log") {
-			write(`${c.dim("│")} ${event.task}: ${event.message}`);
-			return;
-		}
-		if (event.type === "task-ready") {
-			write(`${c.green("●")} ${event.task} ${c.dim("ready")}`);
-			return;
-		}
-		if (event.type === "task-settled") {
-			outcomes.set(event.task, event.outcome);
-			const { mark, note } = describe(event.outcome);
-			write(`${mark} ${event.task} ${note}`);
-			if (event.outcome.kind === "fail") {
-				renderFailure(event.outcome, buffered.get(event.task) ?? [], write);
-			}
-			return;
-		}
-		if (event.type === "run-end") {
-			renderSummary(outcomes, event.ok, event.ms, write);
+		switch (event.type) {
+			case "task-start":
+				if (event.persistent) state.live.add(event.task);
+				return;
+			case "task-output":
+				handleOutput(event.task, event.line, state);
+				return;
+			case "task-log":
+				state.write(`${c.dim("│")} ${event.task}: ${event.message}`);
+				return;
+			case "task-restart":
+				state.write(
+					`${c.yellow("↻")} ${event.task} ${c.dim(`(${event.reason})`)}`,
+				);
+				return;
+			case "task-ready":
+				state.write(`${c.green("●")} ${event.task} ${c.dim("ready")}`);
+				return;
+			case "task-settled":
+				handleSettled(event.task, event.outcome, state);
+				return;
+			case "run-end":
+				renderSummary(state.outcomes, event.ok, event.ms, state.write);
+				return;
+			default:
+				return;
 		}
 	};
 }

@@ -57,6 +57,16 @@ export default defineConfig({
 			tags: ["check"],
 		}),
 		task({
+			name: "test:cache",
+			body: "bun test tests/cache.test.ts",
+			tags: ["check"],
+		}),
+		task({
+			name: "test:dev",
+			body: "bun test tests/dev.test.ts",
+			tags: ["check"],
+		}),
+		task({
 			name: "test:smoke",
 			body: "bun test tests/smoke.test.ts",
 			tags: ["check"],

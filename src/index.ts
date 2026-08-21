@@ -29,6 +29,7 @@ export {
 	type Task,
 	TaskFailure,
 } from "./engine/types.ts";
+export { type Watcher, type WatchSpec, watchPaths } from "./engine/watch.ts";
 export { TempoAbortError, TempoConfigError } from "./errors.ts";
 export { jsonSink, ttySink } from "./render.ts";
 export type { CommandSpec, ResolvedConfig, TempoConfig } from "./types.ts";

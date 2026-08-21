@@ -12,6 +12,8 @@ export interface CommandSpec {
 	tasks?: string[];
 	concurrency?: number;
 	requirementPolicy?: RequirementPolicy;
+	/** first-exits ends the run when the first persistent task exits. */
+	exitBehavior?: "first-exits" | "all-exit";
 }
 
 export interface TempoConfig {

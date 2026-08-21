@@ -46,6 +46,7 @@ function applyValueFlag(
 function extractGlobals(argv: string[]): {
 	globals: GlobalFlags;
 	rest: string[];
+	passthrough: string[];
 } {
 	const globals: GlobalFlags = {
 		json: false,
@@ -53,12 +54,14 @@ function extractGlobals(argv: string[]): {
 		noCache: false,
 	};
 	const rest: string[] = [];
+	let passthrough: string[] = [];
 
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i];
 		if (arg === undefined) continue;
+		// Everything past `--` belongs to the task, not to tempo or cleye.
 		if (arg === "--") {
-			rest.push(...argv.slice(i));
+			passthrough = argv.slice(i + 1);
 			break;
 		}
 		if (applyBooleanFlag(arg, globals)) continue;
@@ -68,7 +71,7 @@ function extractGlobals(argv: string[]): {
 		}
 		rest.push(arg);
 	}
-	return { globals, rest };
+	return { globals, rest, passthrough };
 }
 
 /** Positional targets narrow a selection by task name or tag. */
@@ -131,6 +134,8 @@ async function execute(
 	graph: Graph,
 	runSet: Set<string>,
 	globals: GlobalFlags,
+	spec?: CommandSpec,
+	passthrough: string[] = [],
 ): Promise<number> {
 	if (globals.dryRun) {
 		printPlan(graph, runSet);
@@ -157,6 +162,8 @@ async function execute(
 			requirementPolicy: config.isCI ? "fail" : undefined,
 			rootDir: config.rootDir,
 			cache: !globals.noCache,
+			passthrough,
+			exitBehavior: spec?.exitBehavior,
 			signal: controller.signal,
 			onEvent: sink,
 		});
@@ -173,7 +180,7 @@ async function execute(
 export async function main(
 	argv: string[] = process.argv.slice(2),
 ): Promise<number> {
-	const { globals, rest } = extractGlobals(argv);
+	const { globals, rest, passthrough } = extractGlobals(argv);
 
 	// A bun project runs under bun, so configs may use bun-only APIs.
 	if (shouldReexec()) reexecUnderBun();
@@ -234,7 +241,14 @@ export async function main(
 	}
 	if (name === "run") {
 		const wanted = (parsed._ as unknown as { tasks: string[] }).tasks ?? [];
-		return execute(config, graph, graph.selectByName(wanted), globals);
+		return execute(
+			config,
+			graph,
+			graph.selectByName(wanted),
+			globals,
+			undefined,
+			passthrough,
+		);
 	}
 	if (name && specs[name]) {
 		const spec = specs[name];
@@ -245,10 +259,14 @@ export async function main(
 			selectFor(graph, spec),
 			targets,
 		);
-		return execute(config, graph, runSet, {
-			...globals,
-			concurrency: globals.concurrency ?? spec.concurrency,
-		});
+		return execute(
+			config,
+			graph,
+			runSet,
+			{ ...globals, concurrency: globals.concurrency ?? spec.concurrency },
+			spec,
+			passthrough,
+		);
 	}
 
 	parsed.showHelp();

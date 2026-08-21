@@ -4,6 +4,13 @@ import { delimiter, join } from "node:path";
 import type { Captured, Requirement } from "./types.ts";
 
 const SIGKILL_AFTER_MS = 3_000;
+/**
+ * Sequences a multiplexed pane cannot honour: whole-screen erases, scrollback
+ * erases, cursor-home, and alt-screen switches. Vite clears the screen by
+ * default, which would wipe every other process's output.
+ */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching escape sequences is the point
+const SCREEN_CONTROL = /\x1b\[(?:[23]J|H|\?1049[hl])/g;
 const DEATH_POLL_MS = 20;
 
 /** Characters meaning a string genuinely needs a shell to interpret it. */
@@ -76,6 +83,8 @@ function sleep(ms: number): Promise<void> {
 export interface SpawnOptions {
 	cwd?: string;
 	env?: Record<string, string>;
+	/** Ask the child for colour even though its stdout is a pipe. */
+	color?: boolean;
 	signal: AbortSignal;
 	onLine?: (stream: "stdout" | "stderr", line: string) => void;
 	capture?: boolean;
@@ -110,7 +119,12 @@ export class Spawned implements AsyncDisposable {
 		this.signal = opts.signal;
 		this.child = spawn(command, args, {
 			cwd: opts.cwd,
-			env: { ...process.env, ...opts.env },
+			env: {
+				...process.env,
+				// A pipe makes tools drop colour; ask for it back explicitly.
+				...(opts.color ? { FORCE_COLOR: "1", CLICOLOR_FORCE: "1" } : {}),
+				...opts.env,
+			},
 			stdio: ["ignore", "pipe", "pipe"],
 			// Lead a process group so a signal reaches grandchildren too.
 			detached: true,
@@ -143,7 +157,8 @@ export class Spawned implements AsyncDisposable {
 		if (!source) return;
 		let buffered = "";
 		source.setEncoding("utf8");
-		source.on("data", (chunk: string) => {
+		source.on("data", (raw: string) => {
+			const chunk = raw.replace(SCREEN_CONTROL, "");
 			if (opts.capture) {
 				if (stream === "stdout") this.stdout += chunk;
 				else this.stderr += chunk;
