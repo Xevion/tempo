@@ -31,9 +31,61 @@ jobs:
         env:
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+  # Mirrors the CI checks against the exact commit being published. CI runs on
+  # the same push but is a separate workflow, so it cannot gate this one.
+  verify:
+    name: Verify
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6 # zizmor: ignore[unpinned-uses]
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2 # zizmor: ignore[unpinned-uses]
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v6 # zizmor: ignore[unpinned-uses]
+        with:
+          node-version: "22"
+
+      - uses: denoland/setup-deno@v2 # zizmor: ignore[unpinned-uses]
+        with:
+          deno-version: v2.x
+
+      - run: bun install --frozen-lockfile
+
+      - name: Type Check
+        run: bun run typecheck
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Build CLI
+        run: bun run build
+
+      - name: Tests
+        run: bun test
+        env:
+          TEMPO_CI_COMPAT: "1"
+
+      - name: Audit
+        run: bun audit
+
+      - name: Publint
+        run: bunx publint --strict
+
+      - name: Are The Types Wrong
+        run: bunx @arethetypeswrong/cli --pack .
+
   publish:
     name: Publish to npm
-    needs: release-please
+    needs: [release-please, verify]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15

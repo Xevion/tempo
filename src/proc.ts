@@ -1,4 +1,5 @@
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import { constants } from "node:os";
 import type { Readable } from "node:stream";
 import { TempoRunError } from "./errors.ts";
 import { elapsed, exitCodeForSignal, RESET_TERMINAL } from "./fmt.ts";
@@ -19,10 +20,24 @@ export {
 	warnMissingTool,
 } from "./tools.ts";
 
-/** Promise that resolves with exit code when a ChildProcess exits */
+/** Exit code for a command that could not be executed at all */
+export const EXIT_SPAWN_FAILED = 127;
+
+/** Conventional exit code for a signal-killed process (128 + signal number) */
+export function exitCodeForKill(signal: NodeJS.Signals): number {
+	const num = constants.signals[signal];
+	return num === undefined ? 1 : 128 + num;
+}
+
+/** Promise that resolves with exit code when a ChildProcess exits or fails to spawn */
 export function onExit(child: ChildProcess): Promise<number> {
 	return new Promise((resolve) => {
-		child.on("exit", (code) => resolve(code ?? 1));
+		child.on("exit", (code, signal) =>
+			resolve(code ?? (signal ? exitCodeForKill(signal) : 1)),
+		);
+		// Without an "error" listener a failed spawn throws an unhandled event and
+		// leaves this promise pending forever.
+		child.on("error", () => resolve(EXIT_SPAWN_FAILED));
 	});
 }
 
@@ -43,6 +58,34 @@ export function streamToString(
 export const GRACEFUL_KILL_TIMEOUT_MS = 3000;
 
 /**
+ * Children spawned into their own process group, so a signal can reach the
+ * whole subtree rather than only the direct child.
+ */
+const detachedChildren = new WeakSet<ChildProcess>();
+
+/**
+ * Record that a child leads its own process group, so signals target the group.
+ *
+ * Detaching calls setsid, so the child keeps any inherited stdin but loses the
+ * controlling terminal. Terminal-generated SIGINT therefore reaches only tempo,
+ * which forwards it: one owner of termination rather than two racing.
+ */
+export function trackDetached(proc: ChildProcess): ChildProcess {
+	detachedChildren.add(proc);
+	return proc;
+}
+
+/** Signal a child, reaching its whole process group when it leads one. */
+export function signalProc(proc: ChildProcess, signal: NodeJS.Signals): void {
+	try {
+		if (detachedChildren.has(proc) && proc.pid) process.kill(-proc.pid, signal);
+		else proc.kill(signal);
+	} catch {
+		// already exited
+	}
+}
+
+/**
  * Send SIGTERM to a process and schedule a SIGKILL fallback after `timeout` ms.
  * Returns a function to cancel the SIGKILL timer (call when the process exits cleanly).
  */
@@ -50,18 +93,8 @@ export function escalateKill(
 	proc: ChildProcess,
 	timeout = GRACEFUL_KILL_TIMEOUT_MS,
 ): () => void {
-	try {
-		proc.kill("SIGTERM");
-	} catch {
-		// already exited
-	}
-	const timer = setTimeout(() => {
-		try {
-			proc.kill("SIGKILL");
-		} catch {
-			// already exited
-		}
-	}, timeout);
+	signalProc(proc, "SIGTERM");
+	const timer = setTimeout(() => signalProc(proc, "SIGKILL"), timeout);
 	return () => clearTimeout(timer);
 }
 
@@ -78,9 +111,29 @@ export async function gracefulKill(
 	cancel();
 }
 
-/** Convert a command to spawn args. Strings run via sh -c, arrays exec directly. */
+/** Characters that mean a string genuinely needs a shell to interpret it. */
+const SHELL_META = /[|&;<>()$`\\"'*?[\]~]/;
+/** A leading `NAME=value` prefix is an env assignment, which only a shell applies. */
+const ENV_PREFIX = /^[A-Za-z_][A-Za-z0-9_]*=/;
+/** Operators that make a command a pipeline or list, which `exec` cannot replace. */
+const SHELL_COMPOUND = /[|;&]/;
+
+/**
+ * Convert a command to spawn args.
+ *
+ * A string is split into argv and spawned directly unless it actually needs a
+ * shell, so the spawned process is the command itself rather than an `sh` whose
+ * death orphans its children. Where a shell is unavoidable, `exec` replaces it
+ * for simple commands so no wrapper survives to swallow signals.
+ */
 export function resolveCmd(cmd: string | string[]): string[] {
-	return typeof cmd === "string" ? ["sh", "-c", cmd] : cmd;
+	if (typeof cmd !== "string") return cmd;
+	const trimmed = cmd.trim();
+	if (trimmed === "") return ["sh", "-c", cmd];
+	if (!SHELL_META.test(trimmed) && !ENV_PREFIX.test(trimmed)) {
+		return trimmed.split(/\s+/);
+	}
+	return ["sh", "-c", SHELL_COMPOUND.test(trimmed) ? cmd : `exec ${cmd}`];
 }
 
 /** Wrap a synchronous command in its lock, announcing the wait when one is already held. */
@@ -101,10 +154,13 @@ export class ProcessGroup {
 	private sigtermHandler: (() => Promise<void>) | null = null;
 	private onBeforeExitFn: (() => Promise<void>) | null = null;
 	public shuttingDown = false;
+	/** Signal that started the shutdown, so callers can report the right exit code */
+	public signalReceived: NodeJS.Signals | null = null;
 
 	private static cliSigintHandler: (() => void) | null = null;
 	private static cliSigtermHandler: (() => void) | null = null;
 	private static activeGroup: ProcessGroup | null = null;
+	private static liveGroups: Set<ProcessGroup> = new Set();
 
 	/** Register CLI-level fallback signal handlers that can be suppressed when a ProcessGroup takes ownership. */
 	static registerCliSignalHandlers(
@@ -138,6 +194,7 @@ export class ProcessGroup {
 	}) {
 		this.strategy = options?.signal ?? "natural";
 		this.onBeforeExitFn = options?.onBeforeExit ?? null;
+		ProcessGroup.liveGroups.add(this);
 		this.suppressCliHandlers();
 		this.setupSignalHandlers();
 	}
@@ -165,8 +222,14 @@ export class ProcessGroup {
 
 	private setupSignalHandlers(): void {
 		const handler = async (signal: NodeJS.Signals) => {
-			if (this.shuttingDown) return;
+			if (this.shuttingDown) {
+				// A repeat signal means the graceful path is not converging: hard-kill
+				// every live group (each holds its own children) and leave immediately.
+				for (const group of ProcessGroup.liveGroups) group.killAllSync();
+				process.exit(exitCodeForSignal(signal));
+			}
 			this.shuttingDown = true;
+			this.signalReceived = signal;
 
 			for (const fn of this.cleanupFns) {
 				try {
@@ -200,6 +263,7 @@ export class ProcessGroup {
 
 	/** Remove signal handlers to prevent leaks when this group is no longer needed */
 	dispose(): void {
+		ProcessGroup.liveGroups.delete(this);
 		if (this.sigintHandler) {
 			process.removeListener("SIGINT", this.sigintHandler);
 			this.sigintHandler = null;
@@ -226,26 +290,38 @@ export class ProcessGroup {
 	): ChildProcess {
 		const args = resolveCmd(cmd);
 		const useJsonPipe = options?.json === true;
+		const inheritStdin = options?.inheritStdin === true;
 		const proc = spawn(args[0] as string, args.slice(1), {
 			cwd: options?.cwd,
 			env: { ...process.env, ...options?.env },
 			stdio: [
-				options?.inheritStdin ? "inherit" : "ignore",
+				inheritStdin ? "inherit" : "ignore",
 				useJsonPipe ? "pipe" : "inherit",
 				useJsonPipe ? "pipe" : "inherit",
 			],
+			detached: true,
 		});
+		trackDetached(proc);
 		if (useJsonPipe) {
 			pipeJsonLines(proc, options?.name ?? "subprocess");
 		}
-		this.children.add(proc);
-		const exitPromise = onExit(proc);
-		this.exitPromises.set(proc, exitPromise);
-		exitPromise.then(() => {
-			this.children.delete(proc);
-			this.exitPromises.delete(proc);
-		});
+		this.adopt(proc);
 		return proc;
+	}
+
+	/**
+	 * Track a child spawned elsewhere so killAll and the signal handlers cover it.
+	 * Returns the exit promise, which callers should use instead of their own onExit.
+	 */
+	adopt(child: ChildProcess): Promise<number> {
+		this.children.add(child);
+		const exitPromise = onExit(child);
+		this.exitPromises.set(child, exitPromise);
+		exitPromise.then(() => {
+			this.children.delete(child);
+			this.exitPromises.delete(child);
+		});
+		return exitPromise;
 	}
 
 	onCleanup(fn: () => void): void {
@@ -305,13 +381,7 @@ export class ProcessGroup {
 	}
 
 	private killAllSync(): void {
-		for (const child of this.children) {
-			try {
-				child.kill("SIGKILL");
-			} catch {
-				// already exited
-			}
-		}
+		for (const child of this.children) signalProc(child, "SIGKILL");
 		this.children.clear();
 		ProcessGroup.resetTerminal();
 	}
@@ -430,6 +500,49 @@ function awaitLockAck(
 	});
 }
 
+/** Grace period for a dead child's pipes to close before its output is given up on */
+const STREAM_FLUSH_MS = 500;
+
+/** Accumulate a stream into chunks, keeping partial data reachable if it never ends */
+function collectStream(stream: Readable | null): {
+	chunks: Buffer[];
+	done: Promise<void>;
+} {
+	const chunks: Buffer[] = [];
+	if (!stream) return { chunks, done: Promise.resolve() };
+	const done = new Promise<void>((resolve) => {
+		stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+		stream.on("end", () => resolve());
+		stream.on("error", () => resolve());
+	});
+	return { chunks, done };
+}
+
+/**
+ * Wait for both pipes to close, but only briefly. A grandchild inherits the pipes
+ * and can hold them open long after the tracked child is dead.
+ */
+async function flushStreams(dones: Promise<void>[]): Promise<void> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const grace = new Promise<void>((resolve) => {
+		timer = setTimeout(resolve, STREAM_FLUSH_MS);
+	});
+	await Promise.race([Promise.all(dones), grace]);
+	if (timer) clearTimeout(timer);
+}
+
+/** Result for a command that never started, so callers get a report instead of a crash */
+function spawnFailure(name: string, err: unknown): CollectResult {
+	const message = err instanceof Error ? err.message : String(err);
+	return {
+		name,
+		stdout: "",
+		stderr: `failed to run: ${message}\n`,
+		exitCode: EXIT_SPAWN_FAILED,
+		elapsed: "0.0",
+	};
+}
+
 /** Async execution with piped output and timing. Timing starts once any lock is held. */
 export async function spawnCollect(
 	cmd: string | string[],
@@ -439,23 +552,39 @@ export async function spawnCollect(
 		name?: string;
 		timeout?: number;
 		lock?: LockOptions;
+		/** Group that should track this child, so signals and killAll reach it */
+		group?: ProcessGroup;
 	},
 ): Promise<CollectResult> {
 	const lock = options?.lock;
 	const args = lock
 		? lockArgv(lock.file, resolveCmd(cmd), { ack: true })
 		: resolveCmd(cmd);
-	const proc = spawn(args[0] as string, args.slice(1), {
-		cwd: options?.cwd,
-		env: { ...process.env, ...options?.env },
-		stdio: lock
-			? ["ignore", "pipe", "pipe", "pipe"]
-			: ["ignore", "pipe", "pipe"],
-	}) as ChildProcess;
+	const name = options?.name ?? args.join(" ");
 
-	const exitPromise = onExit(proc);
-	const stdoutPromise = streamToString(proc.stdout);
-	const stderrPromise = streamToString(proc.stderr);
+	let proc: ChildProcess;
+	try {
+		proc = spawn(args[0] as string, args.slice(1), {
+			cwd: options?.cwd,
+			env: { ...process.env, ...options?.env },
+			stdio: lock
+				? ["ignore", "pipe", "pipe", "pipe"]
+				: ["ignore", "pipe", "pipe"],
+			detached: true,
+		}) as ChildProcess;
+		trackDetached(proc);
+	} catch (err) {
+		return spawnFailure(name, err);
+	}
+
+	let spawnError: Error | undefined;
+	proc.on("error", (err) => {
+		spawnError = err;
+	});
+
+	const exitPromise = options?.group ? options.group.adopt(proc) : onExit(proc);
+	const outStream = collectStream(proc.stdout);
+	const errStream = collectStream(proc.stderr);
 
 	const waitedMs = lock ? await awaitLockAck(proc, exitPromise, lock) : 0;
 	const startTime = Date.now();
@@ -471,21 +600,28 @@ export async function spawnCollect(
 		}, options.timeout * 1000);
 	}
 
-	const [exitCode, stdout, stderrRaw] = await Promise.all([
-		exitPromise,
-		stdoutPromise,
-		stderrPromise,
-	]);
+	const exitCode = await exitPromise;
 	if (killTimer) clearTimeout(killTimer);
 	cancelEscalation?.();
 
-	let stderr = stderrRaw;
+	// A command that never started has no output to wait for.
+	if (!spawnError) {
+		await flushStreams([outStream.done, errStream.done]);
+	}
+	proc.stdout?.destroy();
+	proc.stderr?.destroy();
+
+	const stdout = Buffer.concat(outStream.chunks).toString();
+	let stderr = Buffer.concat(errStream.chunks).toString();
+	if (spawnError) {
+		stderr = `failed to run: ${spawnError.message}\n${stderr}`;
+	}
 	if (timedOut) {
 		stderr = `killed after ${options?.timeout}s timeout\n${stderr}`;
 	}
 
 	return {
-		name: options?.name ?? args.join(" "),
+		name,
 		stdout,
 		stderr,
 		exitCode: timedOut ? 1 : exitCode,
@@ -500,7 +636,7 @@ export async function drainAsCompleted<
 >(
 	promises: Promise<T>[],
 	fallbacks: T[],
-	onResult: (result: T) => void,
+	onResult: (result: T) => void | Promise<void>,
 ): Promise<void> {
 	const remaining = new Map<Promise<T>, T>();
 	for (let i = 0; i < promises.length; i++) {
@@ -527,6 +663,6 @@ export async function drainAsCompleted<
 			),
 		);
 		remaining.delete(result.promise);
-		onResult(result.val);
+		await onResult(result.val);
 	}
 }

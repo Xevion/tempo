@@ -22,9 +22,16 @@ import type {
 	SkippedCheck,
 } from "../types.ts";
 
+/** 128 + SIGKILL(9), produced by the SIGTERM→SIGKILL escalation in killAll */
+const EXIT_SIGKILL = 137;
+
 /** Whether a process was killed by a signal (exit code 128+signal) */
 function isSignalKilled(exitCode: number): boolean {
-	return exitCode === EXIT_SIGINT || exitCode === EXIT_SIGTERM;
+	return (
+		exitCode === EXIT_SIGINT ||
+		exitCode === EXIT_SIGTERM ||
+		exitCode === EXIT_SIGKILL
+	);
 }
 
 /** Determine if a result is a failure, considering warnIfExitCode and signal kills */
@@ -188,7 +195,7 @@ export function renderSummary(
 		);
 	} else {
 		out.write(
-			`\n${c.bold(c.catGreen(`${total}/${total} passed`))} ${c.overlay0(`(${totalElapsed}s)`)}${skippedSuffix}\n`,
+			`\n${c.bold(c.catGreen(`${passed}/${total} passed`))} ${c.overlay0(`(${totalElapsed}s)`)}${skippedSuffix}\n`,
 		);
 	}
 }
@@ -224,6 +231,7 @@ export function createSpinner(
 
 	let phase: "preflight" | "checks" = "preflight";
 	let status = "preflight";
+	let stopped = false;
 	const remaining = new Set(checkNames);
 	const notes = new Map<string, string>();
 
@@ -266,6 +274,8 @@ export function createSpinner(
 			notes.delete(name);
 		},
 		stop() {
+			if (stopped) return;
+			stopped = true;
 			clearInterval(interval);
 			if (isInteractive(config)) process.stderr.write(CLEAR_LINE);
 		},

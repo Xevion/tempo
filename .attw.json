@@ -1,4 +1,3 @@
 {
-	"profile": "esm-only",
-	"ignoreRules": ["internal-resolution-error"]
+	"profile": "esm-only"
 }

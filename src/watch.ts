@@ -4,7 +4,15 @@ import { join } from "node:path";
 import { getLogger } from "@logtape/logtape";
 import { elapsed } from "./fmt.ts";
 import { pipeJsonLines } from "./logging/json.ts";
-import { gracefulKill, onExit, resolveCmd, streamToString } from "./proc.ts";
+import {
+	EXIT_SPAWN_FAILED,
+	escalateKill,
+	onExit,
+	resolveCmd,
+	signalProc,
+	streamToString,
+	trackDetached,
+} from "./proc.ts";
 
 const logger = getLogger(["tempo", "watch"]);
 
@@ -15,14 +23,64 @@ type WatcherState =
 	| "building_with_server"
 	| "swapping";
 
+/** A child paired with the exit promise captured at spawn, so a later waiter cannot miss the exit event. */
+interface Tracked {
+	proc: ChildProcess;
+	exit: Promise<number>;
+}
+
+/** A build command in flight, plus whatever it managed to say on its way out. */
+interface BuildRun {
+	/** Null when the command could not be spawned at all. */
+	tracked: Tracked | null;
+	stdout: Promise<string>;
+	stderr: Promise<string>;
+	/** Filled in when the command could not be exec'd, synchronously or via "error". */
+	spawnError: { message: string };
+}
+
+function errorMessage(err: unknown): string {
+	return err instanceof Error ? err.message : String(err);
+}
+
+function track(proc: ChildProcess): Tracked {
+	return { proc, exit: onExit(proc) };
+}
+
+/** Grace period for a finished build's pipes to close before its output is given up on. */
+const OUTPUT_FLUSH_MS = 500;
+
+/**
+ * Read a build's captured output, preferring stderr. A command that could not be
+ * exec'd leaves its pipes open forever, so the wait is bounded rather than infinite.
+ */
+async function readOutput(
+	stdoutPromise: Promise<string>,
+	stderrPromise: Promise<string>,
+): Promise<string> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const grace = new Promise<[string, string]>((r) => {
+		timer = setTimeout(() => r(["", ""]), OUTPUT_FLUSH_MS);
+	});
+	const [stdout, stderr] = await Promise.race([
+		Promise.all([stdoutPromise, stderrPromise]),
+		grace,
+	]);
+	if (timer) clearTimeout(timer);
+	return (stderr || stdout).trimEnd();
+}
+
 export class BackendWatcher {
 	private state: WatcherState = "building";
-	private server: ChildProcess | null = null;
-	private buildProc: ChildProcess | null = null;
+	private server: Tracked | null = null;
+	private buildProc: Tracked | null = null;
 	private watchers: FSWatcher[] = [];
 	private dirty = false;
 	private debounceTimer: ReturnType<typeof setTimeout> | null = null;
 	private resolveDone!: (code: number) => void;
+	/** Bumped by every build; an invocation whose generation is stale must not touch shared state. */
+	private generation = 0;
+	private stopped = false;
 
 	/** Resolves when the watcher shuts down (signal, fatal error, or explicit shutdown). */
 	readonly done: Promise<number>;
@@ -78,7 +136,7 @@ export class BackendWatcher {
 
 	start(): void {
 		this.setupWatchers();
-		this.build();
+		this.startBuild();
 	}
 
 	private setupWatchers(): void {
@@ -119,31 +177,21 @@ export class BackendWatcher {
 	}
 
 	private handleChange(): void {
+		if (this.stopped) return;
 		switch (this.state) {
 			case "building":
+			case "building_with_server":
 				if (this.interrupt && this.buildProc) {
-					this.buildProc.kill("SIGTERM");
-					this.build();
+					signalProc(this.buildProc.proc, "SIGTERM");
+					this.startBuild();
 				} else {
 					this.dirty = true;
 				}
 				break;
 			case "idle":
 			case "running":
-				if (this.server) {
-					this.state = "building_with_server";
-				} else {
-					this.state = "building";
-				}
-				this.build();
-				break;
-			case "building_with_server":
-				if (this.interrupt && this.buildProc) {
-					this.buildProc.kill("SIGTERM");
-					this.build();
-				} else {
-					this.dirty = true;
-				}
+				this.state = this.server ? "building_with_server" : "building";
+				this.startBuild();
 				break;
 			case "swapping":
 				this.dirty = true;
@@ -151,55 +199,78 @@ export class BackendWatcher {
 		}
 	}
 
-	// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: state machine with multiple transitions
+	/** Fire-and-forget entry point; the build drives the state machine from here. */
+	private startBuild(): void {
+		this.build().catch((err) => {
+			logger.error("build step crashed: {message}", {
+				message: errorMessage(err),
+			});
+			this.state = this.server ? "running" : "idle";
+		});
+	}
+
+	/** Spawn the build command, capturing an exec failure instead of letting it escape. */
+	private spawnBuild(): BuildRun {
+		const spawnError = { message: "" };
+		const empty = Promise.resolve("");
+
+		let proc: ChildProcess;
+		try {
+			proc = trackDetached(
+				spawn(this.buildCmd[0] as string, this.buildCmd.slice(1), {
+					cwd: this.cwd,
+					env: { ...process.env, ...this.env },
+					stdio: [
+						"ignore",
+						this.verboseBuild ? "inherit" : "pipe",
+						this.verboseBuild ? "inherit" : "pipe",
+					],
+					detached: true,
+				}),
+			);
+		} catch (err) {
+			spawnError.message = errorMessage(err);
+			return { tracked: null, stdout: empty, stderr: empty, spawnError };
+		}
+
+		// A command that cannot be exec'd reports through "error", never "exit".
+		proc.on("error", (err) => {
+			spawnError.message = err.message;
+		});
+
+		return {
+			tracked: track(proc),
+			stdout: this.verboseBuild ? empty : streamToString(proc.stdout),
+			stderr: this.verboseBuild ? empty : streamToString(proc.stderr),
+			spawnError,
+		};
+	}
+
+	/** True once a newer build or a shutdown has taken over from this generation. */
+	private superseded(generation: number): boolean {
+		return this.stopped || generation !== this.generation;
+	}
+
 	private async build(): Promise<void> {
+		if (this.stopped) return;
+		const generation = ++this.generation;
 		const start = Date.now();
 		logger.info("building {cmd}", { cmd: this.buildCmd.join(" ") });
 
-		this.buildProc = spawn(this.buildCmd[0] as string, this.buildCmd.slice(1), {
-			cwd: this.cwd,
-			env: { ...process.env, ...this.env },
-			stdio: [
-				"ignore",
-				this.verboseBuild ? "inherit" : "pipe",
-				this.verboseBuild ? "inherit" : "pipe",
-			],
-		});
+		const run = this.spawnBuild();
+		this.buildProc = run.tracked;
 
-		const stdoutPromise = this.verboseBuild
-			? Promise.resolve("")
-			: streamToString(this.buildProc.stdout);
-		const stderrPromise = this.verboseBuild
-			? Promise.resolve("")
-			: streamToString(this.buildProc.stderr);
-
-		const exitCode = await onExit(this.buildProc);
+		const exitCode = run.tracked ? await run.tracked.exit : EXIT_SPAWN_FAILED;
+		// A newer build superseded this one, or the watcher shut down. Whoever owns
+		// the state now must not have it rewritten by this invocation.
+		if (this.superseded(generation)) return;
 		this.buildProc = null;
 
 		if (exitCode !== 0) {
-			logger.error("build failed ({elapsed}s)", { elapsed: elapsed(start) });
-			if (!this.verboseBuild) {
-				const [stdout, stderr] = await Promise.all([
-					stdoutPromise,
-					stderrPromise,
-				]);
-				const output = (stderr || stdout).trimEnd();
-				if (output) {
-					process.stderr.write(`${output}\n`);
-				}
-			}
-			if (this.state === "building_with_server") {
-				this.state = "running";
-				logger.warn("keeping previous server running");
-			} else {
-				this.state = "idle";
-			}
-
-			if (this.dirty) {
-				this.dirty = false;
-				this.state = "building";
-				this.build();
-			}
+			const failure = run.spawnError.message;
+			const output = failure ? "" : await readOutput(run.stdout, run.stderr);
+			if (this.superseded(generation)) return;
+			this.settleFailedBuild(start, output, failure);
 			return;
 		}
 
@@ -209,80 +280,140 @@ export class BackendWatcher {
 			this.state = "swapping";
 			await this.swap();
 		} else {
-			await this.startServer();
+			this.startServer();
 		}
 
-		if (this.dirty) {
-			this.dirty = false;
-			this.state = this.server ? "building_with_server" : "building";
-			this.build();
+		if (this.superseded(generation)) return;
+		this.rebuildIfDirty();
+	}
+
+	/** Report a build that failed or never started, then settle the state machine. */
+	private settleFailedBuild(
+		start: number,
+		output: string,
+		spawnError: string,
+	): void {
+		logger.error("build failed ({elapsed}s)", { elapsed: elapsed(start) });
+		if (spawnError) {
+			logger.error("build command could not start: {message}", {
+				message: spawnError,
+			});
 		}
+		if (output) {
+			process.stderr.write(`${output}\n`);
+		}
+
+		if (this.state === "building_with_server") {
+			this.state = "running";
+			logger.warn("keeping previous server running");
+		} else {
+			this.state = "idle";
+		}
+
+		this.rebuildIfDirty();
+	}
+
+	/** Start the rebuild queued by a change that arrived while this build was busy. */
+	private rebuildIfDirty(): void {
+		if (!this.dirty) return;
+		this.dirty = false;
+		this.state = this.server ? "building_with_server" : "building";
+		this.startBuild();
 	}
 
 	private async swap(): Promise<void> {
-		if (this.server) {
-			await gracefulKill(this.server);
-			this.server = null;
-		}
-		await this.startServer();
+		const previous = this.server;
+		this.server = null;
+		if (previous) await this.stop(previous);
+		this.startServer();
 	}
 
-	private async startServer(): Promise<void> {
+	private startServer(): void {
 		const fullCmd = [...this.runCmd, ...this.passthrough];
-		const proc = spawn(fullCmd[0] as string, fullCmd.slice(1), {
-			cwd: this.cwd,
-			env: { ...process.env, ...this.env },
-			stdio: this.json ? ["inherit", "pipe", "pipe"] : "inherit",
+		let proc: ChildProcess;
+		try {
+			proc = trackDetached(
+				spawn(fullCmd[0] as string, fullCmd.slice(1), {
+					cwd: this.cwd,
+					env: { ...process.env, ...this.env },
+					stdio: this.json ? ["inherit", "pipe", "pipe"] : "inherit",
+					detached: true,
+				}),
+			);
+		} catch (err) {
+			logger.error("server could not start: {message}", {
+				message: errorMessage(err),
+			});
+			this.state = "idle";
+			return;
+		}
+
+		// Without this listener a failed exec surfaces as an unhandled "error" event.
+		proc.on("error", (err) => {
+			logger.error("server could not start: {message}", {
+				message: err.message,
+			});
 		});
-		this.server = proc;
+
+		const tracked = track(proc);
+		this.server = tracked;
 		if (this.json) {
 			pipeJsonLines(proc, this.name);
 		}
 		this.state = "running";
-		logger.info("server started pid {pid}", { pid: proc.pid });
+		// A failed exec has no pid; the "error" listener reports why instead.
+		if (proc.pid !== undefined) {
+			logger.info("server started pid {pid}", { pid: proc.pid });
+		}
 
-		onExit(proc).then((code) => {
-			// Only react if this specific proc is still the current server — a
-			// newer server may have been started (e.g. after a rebuild) between
-			// the exit firing and this handler running.
-			if (this.server !== proc) return;
+		tracked.exit.then((code) => {
+			// Only react if this proc is still the current server; a newer server may
+			// have replaced it between the exit firing and this handler running.
+			if (this.server !== tracked) return;
+			this.server = null;
 			if (this.state === "running") {
 				logger.warn("server exited unexpectedly (code {code})", { code });
-				this.server = null;
 				this.state = "idle";
 			}
 		});
 	}
 
+	/** SIGTERM with a SIGKILL fallback, awaiting the exit promise captured at spawn. */
+	private async stop(tracked: Tracked): Promise<void> {
+		const cancel = escalateKill(tracked.proc);
+		await tracked.exit;
+		cancel();
+	}
+
+	private static killSyncOne(tracked: Tracked | null): void {
+		if (!tracked) return;
+		signalProc(tracked.proc, "SIGKILL");
+	}
+
 	killSync(): void {
+		this.stopped = true;
 		for (const w of this.watchers) w.close();
 		this.watchers = [];
 		if (this.debounceTimer) clearTimeout(this.debounceTimer);
-		try {
-			this.buildProc?.kill("SIGKILL");
-		} catch {
-			// already dead
-		}
-		try {
-			this.server?.kill("SIGKILL");
-		} catch {
-			// already dead
-		}
+		BackendWatcher.killSyncOne(this.buildProc);
+		this.buildProc = null;
+		BackendWatcher.killSyncOne(this.server);
+		this.server = null;
 		this.resolveDone(0);
 	}
 
 	async shutdown(): Promise<void> {
+		this.stopped = true;
 		for (const w of this.watchers) w.close();
 		this.watchers = [];
 		if (this.debounceTimer) clearTimeout(this.debounceTimer);
 
-		if (this.buildProc) {
-			this.buildProc.kill("SIGTERM");
-			await onExit(this.buildProc);
-		}
-		if (this.server) {
-			await gracefulKill(this.server);
-		}
+		const build = this.buildProc;
+		this.buildProc = null;
+		const server = this.server;
+		this.server = null;
+		if (build) await this.stop(build);
+		if (server) await this.stop(server);
 		this.resolveDone(0);
 	}
 }

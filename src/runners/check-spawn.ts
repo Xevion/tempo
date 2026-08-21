@@ -1,5 +1,6 @@
 import { CLEAR_LINE, c, isStderrTTY } from "../fmt.ts";
 import { lockFileFor, lockHolderLabel } from "../lock.ts";
+import type { ProcessGroup } from "../proc.ts";
 import { spawnCollect } from "../proc.ts";
 import { resolveCommandDef, resolveCwd } from "../resolve.ts";
 import type { CollectResult, CommandDef, ResolvedConfig } from "../types.ts";
@@ -31,16 +32,22 @@ function plainReporter(config: ResolvedConfig): LockWaitReporter {
 	};
 }
 
+export interface SpawnChecksOptions {
+	reporter?: LockWaitReporter;
+	/** Group that tracks every spawned check, so a signal can terminate them */
+	group?: ProcessGroup;
+}
+
 /** Spawn all checks in parallel, returning promises and fallbacks for drainAsCompleted */
 export function spawnChecks(
 	checks: CheckEntry[],
 	config: ResolvedConfig,
 	envOverrides: Record<string, string>,
-	reporter?: LockWaitReporter,
+	options?: SpawnChecksOptions,
 ): { promises: Promise<CollectResult>[]; fallbacks: CollectResult[] } {
 	const promises: Promise<CollectResult>[] = [];
 	const fallbacks: CollectResult[] = [];
-	const report = reporter ?? plainReporter(config);
+	const report = options?.reporter ?? plainReporter(config);
 
 	for (const check of checks) {
 		const { cmd, opts } = resolveCommandDef(check.def);
@@ -66,7 +73,14 @@ export function spawnChecks(
 			: undefined;
 
 		promises.push(
-			spawnCollect(cmd, { cwd, env, name: check.name, timeout, lock }),
+			spawnCollect(cmd, {
+				cwd,
+				env,
+				name: check.name,
+				timeout,
+				lock,
+				group: options?.group,
+			}),
 		);
 		fallbacks.push({
 			name: check.name,

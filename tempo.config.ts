@@ -56,11 +56,6 @@ export default defineConfig({
 				zizmor: { cmd: "zizmor .github/", requires: ["zizmor"] },
 			},
 		},
-		build: {
-			commands: {
-				build: "bun run build",
-			},
-		},
 		pkg: {
 			aliases: ["package", "publish"],
 			commands: {
@@ -71,13 +66,22 @@ export default defineConfig({
 			},
 		},
 	},
+	preflights: [
+		{
+			label: "dist build",
+			sources: { dir: "src", pattern: "**/*.ts" },
+			artifacts: { dir: "dist", pattern: "**/*.{mjs,d.ts}" },
+			regenerate: "bun run build",
+			reason: "the pkg checks inspect the packaged output",
+		},
+	],
 	commands: {
 		check: runners.check({ autoFixStrategy: "fix-on-fail" }),
 		fmt: runners.sequential("format-apply", {
 			description: "Sequential per-subsystem formatting",
 			autoFixFallback: true,
 		}),
-		lint: runners.sequential("lint", {
+		lint: runners.sequential("lint-check", {
 			description: "Sequential per-subsystem linting",
 		}),
 		"pre-commit": runners.preCommit(),

@@ -1,4 +1,5 @@
 import { getLogger } from "@logtape/logtape";
+import { TempoConfigError } from "../errors.ts";
 import { lockFileFor } from "../lock.ts";
 import { emitJson, nowIso, type OutputJsonRecord } from "../logging/json.ts";
 import { run, runPiped } from "../proc.ts";
@@ -25,6 +26,7 @@ export async function runSequential(
 ): Promise<number> {
 	const logger = getLogger(["tempo", opts.loggerName]);
 	const targetResult = resolveAndLogTargets(args, config.subsystems, logger);
+	let ran = 0;
 
 	for (const subsystem of targetResult.subsystems) {
 		const sub = config.subsystems[subsystem];
@@ -56,6 +58,8 @@ export async function runSequential(
 		const finalCmd = appendPassthrough(cmd, passthrough);
 		const lock = lockFileFor(config.rootDir, sub.lock, cmdOpts.lock);
 
+		ran++;
+
 		if (config.json) {
 			const result = runPiped(finalCmd, { cwd, lock });
 			const ts = nowIso();
@@ -78,6 +82,14 @@ export async function runSequential(
 		} else {
 			run(finalCmd, { cwd, lock });
 		}
+	}
+
+	// Silently doing nothing reads as success. A command key that matches no
+	// subsystem is a config error, not an empty workload.
+	if (ran === 0) {
+		throw new TempoConfigError(
+			`no subsystem defines a "${opts.commandKey}" command`,
+		);
 	}
 
 	return 0;

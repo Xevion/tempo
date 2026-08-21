@@ -1,8 +1,8 @@
 import { getLogger } from "@logtape/logtape";
 import { TempoAbortError } from "../errors.ts";
-import { elapsed, isInteractive } from "../fmt.ts";
+import { elapsed, exitCodeForSignal, isInteractive } from "../fmt.ts";
 import { buildHookContext, runCleanups, tryHook } from "../hooks.ts";
-import { drainAsCompleted } from "../proc.ts";
+import { drainAsCompleted, ProcessGroup } from "../proc.ts";
 import { refToString, resolveCommandDef } from "../resolve.ts";
 import { resolveAndLogTargets } from "../targets.ts";
 import { checkMissingTools } from "../tools.ts";
@@ -144,27 +144,29 @@ async function collectResults(
 	envOverrides: Record<string, string>,
 	hookCtx: HookContext,
 	spinner: ReturnType<typeof createSpinner>,
+	group: ProcessGroup,
 ): Promise<{ results: Map<string, CollectResult>; hasFailure: boolean }> {
+	// Interrupted before the first check started: spawning now would only orphan work.
+	if (group.signalReceived) return { results: new Map(), hasFailure: false };
+
 	// Only the live spinner can carry a status note; otherwise check-spawn prints its own line.
 	const hasSpinner =
 		isInteractive(config) && !config.json && !config.check?.renderer;
-	const { promises, fallbacks } = spawnChecks(
-		checks,
-		config,
-		envOverrides,
-		hasSpinner
+	const { promises, fallbacks } = spawnChecks(checks, config, envOverrides, {
+		group,
+		reporter: hasSpinner
 			? {
 					waiting: (name, note) => spinner.setNote(name, note),
 					acquired: (name) => spinner.clearNote(name),
 				}
 			: undefined,
-	);
+	});
 
 	const results = new Map<string, CollectResult>();
 	let hasFailure = false;
 	const renderer = config.check?.renderer;
 
-	await drainAsCompleted(promises, fallbacks, (result) => {
+	await drainAsCompleted(promises, fallbacks, async (result) => {
 		spinner.removeCheck(result.name);
 		results.set(result.name, result);
 
@@ -188,11 +190,28 @@ async function collectResults(
 				action: check.action,
 				cmd: [],
 			};
-			config.hooks["after:check:each"](hookCtx, info, result);
+			await config.hooks["after:check:each"](hookCtx, info, result);
 		}
 	});
 
 	return { results, hasFailure };
+}
+
+/** Apply fix-on-fail when it is enabled and the run is still alive, then re-verify */
+async function maybeFixOnFail(
+	checks: CheckEntry[],
+	results: Map<string, CollectResult>,
+	config: ResolvedConfig,
+	envOverrides: Record<string, string>,
+	flags: Record<string, unknown>,
+	group: ProcessGroup,
+	hasFailure: boolean,
+): Promise<boolean> {
+	if (!flags.fix || !hasFailure) return hasFailure;
+	if (config.check?.autoFixStrategy !== "fix-on-fail") return hasFailure;
+	// An interrupted run must not start new fix commands.
+	if (group.signalReceived) return hasFailure;
+	return runFixOnFail(checks, results, config, envOverrides, logger, group);
 }
 
 export async function runCheck(
@@ -224,74 +243,89 @@ export async function runCheck(
 
 	renderSkippedChecks(skipped, config);
 
+	// Owns every spawned check, so SIGINT/SIGTERM tears them down instead of
+	// leaving them running while tempo waits.
+	const group = new ProcessGroup({ signal: "natural" });
+
 	try {
-		await runPreflights(config, baseHookCtx.logger, baseHookCtx.fail, (label) =>
-			spinner.setStatus(label),
-		);
-	} catch (e) {
-		if (e instanceof TempoAbortError) {
-			spinner.stop();
-			return 1;
+		try {
+			await runPreflights(
+				config,
+				baseHookCtx.logger,
+				baseHookCtx.fail,
+				(label) => spinner.setStatus(label),
+			);
+		} catch (e) {
+			if (e instanceof TempoAbortError) {
+				spinner.stop();
+				return 1;
+			}
+			throw e;
 		}
-		throw e;
-	}
 
-	if (checks.length === 0) {
+		if (checks.length === 0) {
+			spinner.stop();
+			logger.info("no checks to run");
+			return 0;
+		}
+
+		const hookAbort = await tryHook(
+			config.hooks?.["before:check"],
+			baseHookCtx,
+		);
+		if (hookAbort !== null) {
+			spinner.stop();
+			return hookAbort;
+		}
+
+		const envOverrides = buildEnvOverrides(hookEnv, config);
+
+		if (flags.fix && config.check?.autoFixStrategy !== "fix-on-fail") {
+			runFixFirst(checks, config, envOverrides, logger);
+		}
+
+		spinner.setPhase("checks");
+		await fireBeforeEachHooks(checks, config, baseHookCtx);
+
+		let { results, hasFailure } = await collectResults(
+			checks,
+			config,
+			envOverrides,
+			baseHookCtx,
+			spinner,
+			group,
+		);
+
 		spinner.stop();
-		logger.info("no checks to run");
-		return 0;
-	}
 
-	const hookAbort = await tryHook(config.hooks?.["before:check"], baseHookCtx);
-	if (hookAbort !== null) {
-		spinner.stop();
-		return hookAbort;
-	}
-
-	const envOverrides = buildEnvOverrides(hookEnv, config);
-
-	if (flags.fix && config.check?.autoFixStrategy !== "fix-on-fail") {
-		runFixFirst(checks, config, envOverrides, logger);
-	}
-
-	spinner.setPhase("checks");
-	await fireBeforeEachHooks(checks, config, baseHookCtx);
-
-	let { results, hasFailure } = await collectResults(
-		checks,
-		config,
-		envOverrides,
-		baseHookCtx,
-		spinner,
-	);
-
-	spinner.stop();
-
-	if (
-		flags.fix &&
-		config.check?.autoFixStrategy === "fix-on-fail" &&
-		hasFailure
-	) {
-		hasFailure = await runFixOnFail(
+		hasFailure = await maybeFixOnFail(
 			checks,
 			results,
 			config,
 			envOverrides,
-			logger,
+			flags,
+			group,
+			hasFailure,
 		);
-	}
 
-	if (config.hooks?.["after:check"]) {
-		await config.hooks["after:check"](baseHookCtx, results);
-	}
-	await runCleanups(cleanupFns);
+		if (config.hooks?.["after:check"]) {
+			await config.hooks["after:check"](baseHookCtx, results);
+		}
+		await runCleanups(cleanupFns);
 
-	renderSummary(
-		results,
-		hasFailure,
-		elapsed(startTime),
-		config,
-		skipped.length,
-	);
-	return hasFailure ? 1 : 0;
+		renderSummary(
+			results,
+			hasFailure,
+			elapsed(startTime),
+			config,
+			skipped.length,
+		);
+
+		const signal = group.signalReceived;
+		if (signal) return exitCodeForSignal(signal);
+		return hasFailure ? 1 : 0;
+	} finally {
+		spinner.stop();
+		group.dispose();
+	}
 }

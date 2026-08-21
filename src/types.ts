@@ -105,14 +105,32 @@ export interface CheckConfig<TSubsystems extends string = string> {
 	renderer?: (event: CheckRenderEvent) => void;
 }
 
-export interface UnmanagedProcess {
+/**
+ * Ordering between dev processes. `dependsOn` names other process keys that
+ * must be spawned (and, if they declare `readyCheck`, ready) before this one
+ * spawns. `readyCheck` is polled after this process spawns; anything that
+ * `dependsOn` it waits for the check to pass, or for `readyTimeoutMs` to
+ * elapse, whichever comes first — a dependent process is never blocked
+ * forever by a dependency that never becomes ready. A process with no
+ * `readyCheck` is considered ready as soon as it's spawned.
+ */
+export interface DevProcessReadiness {
+	dependsOn?: string[];
+	readyCheck?: () => Promise<boolean>;
+	/** Default 30000ms. */
+	readyTimeoutMs?: number;
+	/** Poll interval for `readyCheck`. Default 250ms. */
+	readyPollMs?: number;
+}
+
+export interface UnmanagedProcess extends DevProcessReadiness {
 	type: "unmanaged";
 	cmd: string | string[];
 	cwd?: string;
 	env?: Record<string, string>;
 }
 
-export interface ManagedProcess {
+export interface ManagedProcess extends DevProcessReadiness {
 	type: "managed";
 	watch: {
 		dirs: string[];

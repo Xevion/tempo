@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import pkg from "../package.json";
+import pkg from "../package.json" with { type: "json" };
 
 /** Derive subpath names from package.json exports — single source of truth */
 const SUBPATH_NAMES = Object.keys(pkg.exports)

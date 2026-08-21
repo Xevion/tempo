@@ -2,10 +2,12 @@ import type { Logger } from "@logtape/logtape";
 import { TempoRunError } from "../errors.ts";
 import { c, isInteractive } from "../fmt.ts";
 import { lockFileFor } from "../lock.ts";
+import type { ProcessGroup } from "../proc.ts";
 import { drainAsCompleted, run } from "../proc.ts";
 import { resolveCommandDef, resolveCwd } from "../resolve.ts";
 import { checkMissingTools } from "../tools.ts";
 import type { CollectResult, ResolvedConfig } from "../types.ts";
+import { isFailure } from "./check-renderer.ts";
 import { type CheckEntry, spawnChecks } from "./check-spawn.ts";
 
 /** Apply a single auto-fix action for a subsystem. Returns true on success, false if the fix failed or was skipped. */
@@ -110,6 +112,26 @@ function tryFixFailedCheck(
 	}
 }
 
+/**
+ * Whether any check still counts as failed, across every result rather than only
+ * the re-verified ones. A failure with no autoFix mapping must keep the run red.
+ */
+function anyFailure(
+	checks: CheckEntry[],
+	results: Map<string, CollectResult>,
+	config: ResolvedConfig,
+): boolean {
+	for (const [name, result] of results) {
+		const check = checks.find((ch) => ch.name === name);
+		if (!check) {
+			if (result.exitCode !== 0) return true;
+			continue;
+		}
+		if (isFailure(result, check.def, config)) return true;
+	}
+	return false;
+}
+
 /** Run fix-on-fail auto-fix: apply fixes only for failed checks, then re-verify */
 export async function runFixOnFail(
 	checks: CheckEntry[],
@@ -117,6 +139,7 @@ export async function runFixOnFail(
 	config: ResolvedConfig,
 	envOverrides: Record<string, string>,
 	logger: Logger,
+	group?: ProcessGroup,
 ): Promise<boolean> {
 	const fixedChecks: CheckEntry[] = [];
 
@@ -134,7 +157,7 @@ export async function runFixOnFail(
 		if (fixed) fixedChecks.push(fixed);
 	}
 
-	if (fixedChecks.length === 0) return true;
+	if (fixedChecks.length === 0) return anyFailure(checks, results, config);
 
 	// Re-verify fixed checks
 	logger.info("re-verifying fixed checks...");
@@ -142,16 +165,15 @@ export async function runFixOnFail(
 		fixedChecks,
 		config,
 		envOverrides,
+		{ group },
 	);
 
-	let hasFailure = false;
 	await drainAsCompleted(rePromises, reFallbacks, (result) => {
 		results.set(result.name, result);
-		if (result.exitCode !== 0) hasFailure = true;
 		renderReVerifyResult(result, config, logger);
 	});
 
-	return hasFailure;
+	return anyFailure(checks, results, config);
 }
 
 function renderReVerifyResult(
