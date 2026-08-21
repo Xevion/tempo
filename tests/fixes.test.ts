@@ -80,15 +80,15 @@ describe("proc.spawnCollect lock", () => {
 });
 
 describe("tools.requireDockerDaemon", () => {
-	test("throws TempoAbortError (not bare Error) when docker missing", () => {
-		// Meaningful only when docker is absent; returns void when present.
+	test("returns or aborts promptly instead of blocking on an unreachable daemon", () => {
+		const started = Date.now();
 		try {
 			requireDockerDaemon();
-			// docker exists and daemon is running — skip assertion
 		} catch (err) {
 			expect(err).toBeInstanceOf(TempoAbortError);
 		}
-	});
+		expect(Date.now() - started).toBeLessThan(15_000);
+	}, 20_000);
 });
 
 describe("error type exports", () => {

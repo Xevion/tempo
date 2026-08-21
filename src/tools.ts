@@ -4,6 +4,9 @@ import type { CommandDef, ToolRequirement } from "./types.ts";
 
 const toolCache = new Map<string, boolean>();
 
+/** `docker info` blocks on an unreachable daemon, so the probe is bounded. */
+const DOCKER_INFO_TIMEOUT_MS = 5_000;
+
 export function hasTool(cmd: string): boolean {
 	const cached = toolCache.get(cmd);
 	if (cached !== undefined) return cached;
@@ -27,12 +30,13 @@ export function warnMissingTool(cmd: string, consequence: string): void {
 	);
 }
 
-/** Returns true if the Docker daemon is reachable */
+/** Returns true if the Docker daemon answers within the probe timeout */
 export function hasDockerDaemon(): boolean {
 	if (!hasTool("docker")) return false;
 	try {
 		const result = spawnSync("docker", ["info"], {
 			stdio: ["ignore", "pipe", "pipe"],
+			timeout: DOCKER_INFO_TIMEOUT_MS,
 		});
 		return result.status === 0;
 	} catch {
@@ -47,7 +51,7 @@ export function requireDockerDaemon(): void {
 	}
 	if (!hasDockerDaemon()) {
 		throw new TempoAbortError(
-			"Docker daemon is not running -- start Docker first",
+			"Docker daemon is not responding -- start Docker first",
 		);
 	}
 }
