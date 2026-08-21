@@ -84,8 +84,7 @@ export async function runSequential(
 		}
 	}
 
-	// Silently doing nothing reads as success. A command key that matches no
-	// subsystem is a config error, not an empty workload.
+	// A key matching no subsystem is a config error, not an empty workload.
 	if (ran === 0) {
 		throw new TempoConfigError(
 			`no subsystem defines a "${opts.commandKey}" command`,

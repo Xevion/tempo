@@ -4,8 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-// Regression: a dev process with `dependsOn` must wait for the dependency's
-// `readyCheck` to pass before spawning, not just for the dependency to spawn.
+// Regression: dependents waited only for spawn, not for readyCheck.
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const CLI = resolve(REPO_ROOT, "src/cli.ts");
 

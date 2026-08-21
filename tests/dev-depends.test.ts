@@ -4,9 +4,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-// Regression: an unsatisfiable `dependsOn` graph must fail loudly. Mutually
-// waiting spawn tasks used to drain the event loop and exit 0 having started
-// nothing, and an unknown dependency used to resolve instantly.
+// Regression: a dependency cycle exited 0 having spawned nothing.
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const CLI = resolve(REPO_ROOT, "src/cli.ts");
 const INDEX = resolve(REPO_ROOT, "src/index.ts");

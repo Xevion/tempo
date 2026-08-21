@@ -35,8 +35,7 @@ export function onExit(child: ChildProcess): Promise<number> {
 		child.on("exit", (code, signal) =>
 			resolve(code ?? (signal ? exitCodeForKill(signal) : 1)),
 		);
-		// Without an "error" listener a failed spawn throws an unhandled event and
-		// leaves this promise pending forever.
+		// Without an "error" listener a failed spawn leaves this promise pending forever.
 		child.on("error", () => resolve(EXIT_SPAWN_FAILED));
 	});
 }
@@ -57,19 +56,10 @@ export function streamToString(
 /** Default timeout for SIGTERM→SIGKILL escalation (milliseconds) */
 export const GRACEFUL_KILL_TIMEOUT_MS = 3000;
 
-/**
- * Children spawned into their own process group, so a signal can reach the
- * whole subtree rather than only the direct child.
- */
+/** Children in their own process group, so a signal reaches the whole subtree. */
 const detachedChildren = new WeakSet<ChildProcess>();
 
-/**
- * Record that a child leads its own process group, so signals target the group.
- *
- * Detaching calls setsid, so the child keeps any inherited stdin but loses the
- * controlling terminal. Terminal-generated SIGINT therefore reaches only tempo,
- * which forwards it: one owner of termination rather than two racing.
- */
+/** Record that a child leads its own process group, so signals reach its whole subtree. */
 export function trackDetached(proc: ChildProcess): ChildProcess {
 	detachedChildren.add(proc);
 	return proc;
@@ -85,10 +75,7 @@ export function signalProc(proc: ChildProcess, signal: NodeJS.Signals): void {
 	}
 }
 
-/**
- * Send SIGTERM to a process and schedule a SIGKILL fallback after `timeout` ms.
- * Returns a function to cancel the SIGKILL timer (call when the process exits cleanly).
- */
+/** SIGTERM now, SIGKILL after `timeout`. Returns a canceller for the fallback timer. */
 export function escalateKill(
 	proc: ChildProcess,
 	timeout = GRACEFUL_KILL_TIMEOUT_MS,
@@ -98,10 +85,7 @@ export function escalateKill(
 	return () => clearTimeout(timer);
 }
 
-/**
- * Gracefully kill a process: SIGTERM → wait for exit → SIGKILL fallback if timeout exceeded.
- * The SIGKILL timer is cancelled if the process exits before the timeout.
- */
+/** SIGTERM, await exit, SIGKILL on timeout. */
 export async function gracefulKill(
 	proc: ChildProcess,
 	timeout = GRACEFUL_KILL_TIMEOUT_MS,
@@ -118,14 +102,7 @@ const ENV_PREFIX = /^[A-Za-z_][A-Za-z0-9_]*=/;
 /** Operators that make a command a pipeline or list, which `exec` cannot replace. */
 const SHELL_COMPOUND = /[|;&]/;
 
-/**
- * Convert a command to spawn args.
- *
- * A string is split into argv and spawned directly unless it actually needs a
- * shell, so the spawned process is the command itself rather than an `sh` whose
- * death orphans its children. Where a shell is unavoidable, `exec` replaces it
- * for simple commands so no wrapper survives to swallow signals.
- */
+/** Convert a command to spawn args, avoiding a shell unless the string needs one. */
 export function resolveCmd(cmd: string | string[]): string[] {
 	if (typeof cmd !== "string") return cmd;
 	const trimmed = cmd.trim();
@@ -223,8 +200,7 @@ export class ProcessGroup {
 	private setupSignalHandlers(): void {
 		const handler = async (signal: NodeJS.Signals) => {
 			if (this.shuttingDown) {
-				// A repeat signal means the graceful path is not converging: hard-kill
-				// every live group (each holds its own children) and leave immediately.
+				// A repeat signal means graceful is not converging: hard-kill everything and leave.
 				for (const group of ProcessGroup.liveGroups) group.killAllSync();
 				process.exit(exitCodeForSignal(signal));
 			}
@@ -387,8 +363,7 @@ export class ProcessGroup {
 	}
 
 	static resetTerminal(): void {
-		// Terminal reset escape sequences are only meaningful for an interactive TTY.
-		// Emit to stderr so they never corrupt a JSON Lines stdout stream.
+		// Emit to stderr so a JSON Lines stdout stream is never corrupted.
 		if (process.stderr.isTTY) {
 			process.stderr.write(RESET_TERMINAL);
 		}
@@ -397,18 +372,14 @@ export class ProcessGroup {
 		} catch {
 			// stty may not be available
 		}
-		// Drain any pending terminal query responses (e.g. device attributes, cursor position)
-		// that child processes requested before being killed — these arrive on stdin asynchronously
-		// and would otherwise appear as garbled text in the shell prompt.
+		// Drain terminal queries from killed children, which would otherwise garble the prompt.
 		ProcessGroup.drainStdin();
 	}
 
 	private static drainStdin(): void {
 		if (!process.stdin.isTTY) return;
 		try {
-			// Consume any pending terminal query responses (device attributes, cursor position)
-			// left in the input buffer by killed child processes. Uses a timed shell read
-			// to drain bytes at the kernel level, which Node.js streams can't reliably do.
+			// A timed shell read drains at the kernel level; Node streams cannot do this reliably.
 			spawnSync("bash", ["-c", "read -r -t 0.1 -s -n 1000 2>/dev/null; true"], {
 				stdio: ["inherit", "pipe", "pipe"],
 			});

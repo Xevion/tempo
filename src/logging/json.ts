@@ -73,12 +73,7 @@ function renderMessage(record: LogRecord): string {
 	return msg;
 }
 
-/**
- * A JSON Lines stdout sink for LogTape.
- *
- * Emits one JSON object per log record with the unified schema:
- * `{ ts, type: "log", level, logger, msg, ...properties }`
- */
+/** JSON Lines stdout sink: one `{ ts, type: "log", level, logger, msg, ...props }` per record. */
 export function getJsonStdoutSink(): Sink {
 	const sink: Sink & Disposable = Object.assign(
 		(record: LogRecord) => {

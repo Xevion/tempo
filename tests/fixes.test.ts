@@ -36,9 +36,7 @@ describe("preflight.newestMtime", () => {
 
 describe("proc.spawnCollect", () => {
 	test("timeout kills process and sets exitCode to 1", async () => {
-		// Use `exec sleep` so sh replaces itself with the sleep process —
-		// otherwise SIGTERM to sh doesn't propagate to sleep and the test hangs
-		// on stream close waiting for the graceful-kill fallback.
+		// `exec` makes sleep the tracked child so SIGTERM reaches it.
 		const result = await spawnCollect(["sh", "-c", "exec sleep 10"], {
 			timeout: 0.2,
 		});
@@ -50,9 +48,7 @@ describe("proc.spawnCollect", () => {
 		const t0 = Date.now();
 		await spawnCollect(["sh", "-c", "exec sleep 10"], { timeout: 0.1 });
 		const elapsed = Date.now() - t0;
-		// The spawnCollect should return shortly after SIGTERM, not 3s later.
-		// A leaked SIGKILL timer wouldn't block the await, but confirms
-		// the timeout path completes normally.
+		// spawnCollect should return shortly after SIGTERM, not 3s later.
 		expect(elapsed).toBeLessThan(3000);
 	}, 10000);
 });
@@ -85,8 +81,7 @@ describe("proc.spawnCollect lock", () => {
 
 describe("tools.requireDockerDaemon", () => {
 	test("throws TempoAbortError (not bare Error) when docker missing", () => {
-		// This test only runs meaningfully when docker is absent; when present
-		// the function returns void. We handle both cases.
+		// Meaningful only when docker is absent; returns void when present.
 		try {
 			requireDockerDaemon();
 			// docker exists and daemon is running — skip assertion

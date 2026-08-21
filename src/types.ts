@@ -105,15 +105,7 @@ export interface CheckConfig<TSubsystems extends string = string> {
 	renderer?: (event: CheckRenderEvent) => void;
 }
 
-/**
- * Ordering between dev processes. `dependsOn` names other process keys that
- * must be spawned (and, if they declare `readyCheck`, ready) before this one
- * spawns. `readyCheck` is polled after this process spawns; anything that
- * `dependsOn` it waits for the check to pass, or for `readyTimeoutMs` to
- * elapse, whichever comes first — a dependent process is never blocked
- * forever by a dependency that never becomes ready. A process with no
- * `readyCheck` is considered ready as soon as it's spawned.
- */
+/** Ordering between dev processes. A dependent waits for `readyCheck` or `readyTimeoutMs`, whichever is first. */
 export interface DevProcessReadiness {
 	dependsOn?: string[];
 	readyCheck?: () => Promise<boolean>;
@@ -446,17 +438,7 @@ export interface TargetResult<T extends string> {
 	raw: string[];
 }
 
-/**
- * A command entry in the unified command tree.
- *
- * Discrimination:
- * - `typeof entry === 'function'` → bare function
- * - `typeof entry === 'string'` → file path for dynamic import
- * - `entry === false` → explicitly disabled
- * - `typeof entry === 'object' && typeof entry.run === 'function'` → SimpleCommandSpec
- * - `typeof entry === 'object' && 'mode' in entry` → mode-based spec (ParallelCommandSpec | SequentialCommandSpec | WatchCommandSpec)
- * - `typeof entry === 'object' && typeof entry.run !== 'function' && !('mode' in entry)` → CommandTree (nested group)
- */
+/** Discrimination between the CommandEntry variants lives in the CLI's resolveSpec. */
 
 /** Recursive record of command entries — supports nested command groups. */
 export interface CommandTree {

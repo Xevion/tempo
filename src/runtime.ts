@@ -21,13 +21,7 @@ export function detectBunProject(startDir?: string): boolean {
 	}
 }
 
-/**
- * Returns true when all of these hold:
- * - Not already running under Bun
- * - Not in a re-exec loop (TEMPO_REEXEC not set)
- * - Project has a bun lockfile (walk-up search from cwd)
- * - `bun` is available on PATH
- */
+/** True when this Node process should re-exec under bun. */
 export function shouldReexec(): boolean {
 	if (process.env[REEXEC_ENV]) return false;
 	if ("Bun" in globalThis) return false;
@@ -40,15 +34,10 @@ export function isBunAvailable(): boolean {
 	return hasTool("bun");
 }
 
-/**
- * Re-exec under bun, forwarding all args and stdio.
- * Targets src/cli.ts (raw TS) rather than dist/cli.mjs to avoid
- * potential dead-code elimination of Bun branches in the built output.
- */
+/** Re-exec under bun. Targets raw src/cli.ts so Bun branches survive dead-code elimination. */
 export function reexecUnderBun(): never {
 	const selfDir = dirname(fileURLToPath(import.meta.url));
-	// When running from dist/cli.mjs, resolve to ../src/cli.ts
-	// When running from src/ directly, fall back to self
+	// From dist/cli.mjs resolve to ../src/cli.ts; from src/ fall back to self.
 	const srcCli = resolve(selfDir, "..", "src", "cli.ts");
 	const target = existsSync(srcCli) ? srcCli : fileURLToPath(import.meta.url);
 

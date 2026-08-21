@@ -243,8 +243,7 @@ export async function runCheck(
 
 	renderSkippedChecks(skipped, config);
 
-	// Owns every spawned check, so SIGINT/SIGTERM tears them down instead of
-	// leaving them running while tempo waits.
+	// Owns every spawned check, so a signal tears them down.
 	const group = new ProcessGroup({ signal: "natural" });
 
 	try {

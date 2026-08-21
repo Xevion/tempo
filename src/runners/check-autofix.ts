@@ -67,9 +67,7 @@ export function runFixFirst(
 	}
 }
 
-/** Attempt a single fix for a failed check. Returns the check if the fix ran
- *  successfully (and should be re-verified), or null if there was no fix, it
- *  was skipped, or the fix command itself failed. */
+/** Fix a failed check, returning it for re-verification, or null if nothing ran. */
 function tryFixFailedCheck(
 	check: CheckEntry,
 	results: Map<string, CollectResult>,

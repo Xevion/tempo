@@ -3,13 +3,7 @@ import ansis from "ansis";
 
 const mocha = flavors.mocha.colors;
 
-/**
- * Catppuccin Mocha theme via ansis.extend().
- *
- * Names that collide with ansis builtins (red, green, yellow, blue) are
- * prefixed: catRed, catGreen, catYellow, catBlue. All other Catppuccin
- * names are used as-is.
- */
+/** Catppuccin Mocha via ansis.extend(). Builtin collisions are prefixed catRed, catGreen, catYellow, catBlue. */
 export const c = ansis.extend({
 	rosewater: mocha.rosewater.hex,
 	flamingo: mocha.flamingo.hex,

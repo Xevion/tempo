@@ -4,8 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-// Regressions: global flags must stop at `--`, hook cleanups must always drain,
-// and identity (`--version`/`--help`) must answer outside a project.
+// Regressions: global flags leaked past `--`, cleanups skipped, identity needed a config.
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const CLI = resolve(REPO_ROOT, "src/cli.ts");
 

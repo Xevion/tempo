@@ -8,13 +8,7 @@ const SUBPATH_NAMES = Object.keys(pkg.exports)
 	.filter((k) => k.startsWith("./") || k === ".")
 	.map((k) => (k === "." ? "index" : k.slice(2)));
 
-/**
- * Register virtual modules so config files can `import from "@xevion/tempo"`
- * without a project-level package.json or node_modules.
- * Under Bun: resolve to src/*.ts (native TS support).
- * Under Node: resolve to dist/*.mjs (pre-built JS, since Node can't strip
- * types from files inside node_modules).
- */
+/** Register virtual modules so configs can import "@xevion/tempo" with no node_modules. */
 export async function initRegistration(): Promise<void> {
 	const selfDir = resolve(dirname(fileURLToPath(import.meta.url)));
 	const isBun = "Bun" in globalThis;

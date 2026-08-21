@@ -60,11 +60,7 @@ export function createOctocovConfig(
 	};
 }
 
-/**
- * Return Go package import paths that have test files.
- * Passing these explicitly to `go test` avoids printing 0%-coverage lines
- * for packages with no tests.
- */
+/** Go packages that have tests, so `go test` skips 0%-coverage lines for those that do not. */
 export function testablePackages(): string[] {
 	const result = runPiped([
 		"go",

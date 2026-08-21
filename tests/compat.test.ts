@@ -1,9 +1,4 @@
-/**
- * Cross-runtime compatibility tests.
- *
- * Verifies that tempo's public API surface can be imported and used
- * under Node.js and Deno in addition to Bun.
- */
+/** Verifies the public API surface imports and runs under Node and Deno, not just Bun. */
 
 import { afterAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
@@ -175,8 +170,7 @@ describe("no bun-specific APIs in source", () => {
 
 		for (const file of files) {
 			const content = readFileSync(file, "utf-8");
-			// Match static imports like: import { plugin } from "bun"
-			// But not dynamic: await import("bun")
+			// Static `import { plugin } from "bun"`, not dynamic `await import("bun")`.
 			const staticImport = /^import\s.*from\s+["']bun["']/m;
 			if (staticImport.test(content)) {
 				violations.push(file);
@@ -206,8 +200,7 @@ const CLI_RUNTIMES = [
 
 describe("cli entrypoint: source", () => {
 	for (const runtime of CLI_RUNTIMES) {
-		// TEMPO_REEXEC pins execution to the runtime under test instead of handing
-		// off to bun, which would make every runtime look identical.
+		// TEMPO_REEXEC pins the runtime under test, which would otherwise hand off to bun.
 		test.skipIf(!runtime.available)(
 			`${runtime.name} executes src/cli.ts`,
 			() => {
@@ -306,8 +299,7 @@ function createPackagedInstall(): PackagedInstall {
 		private: true,
 		type: "module",
 		dependencies: { [pkg.name]: `file:./${TARBALL}` },
-		// @types/node is an optional peer, so a consumer supplies it the same
-		// way any TypeScript project on Node already does.
+		// @types/node is an optional peer, so consumers supply it themselves.
 		devDependencies: { "@types/node": pkg.peerDependencies["@types/node"] },
 	};
 	writeFileSync(join(dir, "package.json"), JSON.stringify(manifest, null, 2));

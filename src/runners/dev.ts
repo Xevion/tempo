@@ -79,11 +79,7 @@ function findDependencyCycle(
 	return null;
 }
 
-/**
- * Rejects `dependsOn` graphs that can never be satisfied. A name that is not a
- * configured dev process is a typo, and a cycle would leave every process in it
- * waiting forever while the run exits having spawned nothing.
- */
+/** Rejects unsatisfiable `dependsOn` graphs: unknown names and cycles. */
 function validateDependencies(
 	processes: Partial<Record<string, DevProcess>>,
 ): void {
@@ -237,9 +233,7 @@ export async function runDev(
 
 		const envOverrides: Record<string, string> = { ...hookEnv };
 
-		// Spawn processes. Each subsystem gets a readiness deferred, created
-		// up front so `dependsOn` can await a dependency regardless of which
-		// subsystem's async spawn task happens to run first.
+		// Deferreds are created up front so dependsOn resolves regardless of spawn order.
 		const processes = config.dev?.processes ?? {};
 		validateDependencies(processes);
 
@@ -259,8 +253,7 @@ export async function runDev(
 			await awaitDependencies(subsystem, procDef, readyDeferreds);
 
 			const deferred = readyDeferreds.get(subsystem);
-			// Teardown may have started while this task waited; spawning now would
-			// leave a child nothing is tracking. Release dependents before bailing.
+			// Teardown may have started while waiting; release dependents before bailing.
 			if (isTearingDown()) {
 				deferred?.resolve();
 				return;
@@ -304,6 +297,11 @@ export async function runDev(
 			exitCode = await group.waitForAll();
 		}
 
+		// Ctrl-C ends a dev session; it is not a failure.
+		if (group.signalReceived !== null) {
+			exitCode = 0;
+		}
+
 		// Run after:dev hook
 		if (config.hooks?.["after:dev"]) {
 			await config.hooks["after:dev"](hookCtx);
@@ -313,8 +311,7 @@ export async function runDev(
 
 		return exitCode;
 	} finally {
-		// Every exit path kills first: bailing out on a spawn error while only
-		// disposing would leave already-started processes orphaned and running.
+		// Kill before disposing, or a spawn error leaves started processes orphaned.
 		tearingDown = true;
 		await group.killAll();
 		group.dispose();

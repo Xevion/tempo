@@ -261,8 +261,7 @@ export class BackendWatcher {
 		this.buildProc = run.tracked;
 
 		const exitCode = run.tracked ? await run.tracked.exit : EXIT_SPAWN_FAILED;
-		// A newer build superseded this one, or the watcher shut down. Whoever owns
-		// the state now must not have it rewritten by this invocation.
+		// A newer build or a shutdown owns the state now; do not overwrite it.
 		if (this.superseded(generation)) return;
 		this.buildProc = null;
 
@@ -367,8 +366,7 @@ export class BackendWatcher {
 		}
 
 		tracked.exit.then((code) => {
-			// Only react if this proc is still the current server; a newer server may
-			// have replaced it between the exit firing and this handler running.
+			// Ignore unless this proc is still the current server.
 			if (this.server !== tracked) return;
 			this.server = null;
 			if (this.state === "running") {

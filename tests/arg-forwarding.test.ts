@@ -4,8 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-// Regression: custom commands must receive positional args via ctx.args and
-// post-`--` tokens via ctx.passthrough (previously both were silently empty).
+// Regression: ctx.args and ctx.passthrough were both silently empty.
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const CLI = resolve(REPO_ROOT, "src/cli.ts");
 

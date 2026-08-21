@@ -5,9 +5,7 @@ import { elapsed } from "./fmt.ts";
 
 const logger = getLogger(["tempo", "preflight"]);
 
-/** Scan a directory recursively and return the highest mtimeMs among matching files.
- *  Returns 0 when the directory is missing, and warns — a missing source dir would
- *  otherwise silently make `ensureFresh` report "up to date" and skip regeneration. */
+/** Highest mtimeMs among matching files. A missing directory warns and returns 0. */
 export function newestMtime(dir: string, pattern: string): number {
 	if (!existsSync(dir)) {
 		logger.warn("directory missing, treating as empty: {dir}", { dir });

@@ -6,8 +6,7 @@ import { basename, join, resolve } from "node:path";
 import { hasTool } from "./tools.ts";
 import type { LockSpec } from "./types.ts";
 
-// $0 is the lockfile, "$@" the real command, fd 3 the parent's ack pipe. The pid file names the
-// holder for waiters, and is written by the shell that exec's the command, so it stays valid.
+// $0 is the lockfile, "$@" the command, fd 3 the ack pipe; the pid file names the holder.
 const ACK_SCRIPT = 'printf %s "$$" > "$0.holder"; printf . >&3; exec "$@"';
 const PLAIN_SCRIPT = 'printf %s "$$" > "$0.holder"; exec "$@"';
 
@@ -50,8 +49,7 @@ export function lockFileFor(
 
 /**
  * Wrap a command so it holds an exclusive lock for its lifetime.
- * The lock is a kernel-held fd inherited across exec, so it releases even on SIGKILL.
- * `-F` keeps the pid ours, so signals sent to the child still reach the real command.
+ * The fd is inherited across exec, so it releases even on SIGKILL.
  */
 export function lockArgv(
 	lockFile: string,

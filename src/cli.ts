@@ -224,9 +224,7 @@ async function resolveSpec(
 	return null;
 }
 
-/** Check if a CommandEntry is a nested command group (not an InlineCommandSpec).
- *  InlineCommandSpec has `run` as a function; a CommandTree may have a `run` key
- *  that is itself a nested CommandEntry (object/string/function), not the spec's runner. */
+/** A CommandTree's `run` key is a nested entry, not the spec's runner function. */
 function isCommandGroup(entry: CommandEntry): entry is CommandTree {
 	return (
 		typeof entry === "object" &&
@@ -397,8 +395,7 @@ async function buildCommands(
 	return commands;
 }
 
-// cleye's `_` is an array of all positionals plus `_['--']` (passthrough,
-// also appended to the tail). Leading args = raw array minus that tail.
+// cleye's `_` holds every positional with the `--` tail appended; strip that tail.
 // biome-ignore lint/suspicious/noExplicitAny: cleye's positional types vary per command definition
 function extractArgs(positionals: any): string[] {
 	if (!positionals) return [];

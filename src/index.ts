@@ -73,14 +73,7 @@ function createStubConfig(): ResolvedConfig {
 	};
 }
 
-/**
- * Define a custom command that works both via `tempo run` and direct `bun` execution.
- *
- * Pass `import.meta.main` as the second arg for dual-mode:
- * ```ts
- * export default defineCommand({ ... }, import.meta.main);
- * ```
- */
+/** Define a custom command. Pass `import.meta.main` second to allow direct execution too. */
 export function defineCommand<
 	TFlags extends Record<string, CommandFlagDef> = Record<
 		string,

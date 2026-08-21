@@ -4,9 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-// Commands exercised end-to-end under --json. Every stdout byte must be
-// parseable JSON Lines with a known `type` discriminator — no ANSI escapes,
-// no raw human text, no terminal resets.
+// Every stdout byte under --json must be parseable JSON Lines with a `type`.
 const KNOWN_TYPES = new Set(["log", "output", "result", "skip", "summary"]);
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
