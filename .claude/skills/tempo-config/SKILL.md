@@ -1,492 +1,340 @@
 ---
 name: tempo-config
-description: Comprehensive guide for writing, configuring, and improving @xevion/tempo configs in consumer projects. Auto-activate when creating or editing tempo.config.ts files, adding presets, defining subsystems, writing custom commands, or setting up dev/check runners.
+description: Guide for writing and improving @xevion/tempo configs in consumer projects. Auto-activate when creating or editing tempo.config.ts, adding presets, declaring tasks, wiring dev sessions, or writing custom commands.
 user-invocable: true
 argument-hint: "[question or task]"
 ---
 
 # @xevion/tempo Configuration Guide
 
-Use this skill when writing or modifying `tempo.config.ts` in any project that consumes `@xevion/tempo`. This covers the full config API, all presets, custom commands, hooks, preflights, and best practices.
+Use this when writing or modifying `tempo.config.ts`. It covers the task model, presets,
+caching, dev sessions, and the conventions worth following.
 
-## Installation
+## Install
 
 ```bash
-# In consumer projects
-bun add -d @xevion/tempo
-# or
-npm install -D @xevion/tempo
+bun add -d @xevion/tempo    # or npm/pnpm/yarn
 ```
 
-The package provides a `tempo` CLI binary and TypeScript API. It works with Bun, Node.js 22+, and Deno.
+A globally installed tempo also works in a project with no `package.json`: the CLI registers
+itself as a virtual module. Types still need the devDependency, since the compiler cannot see
+a module that only exists at runtime.
 
-## Config File
+## The model
 
-Config lives in `tempo.config.ts` at the project root. The CLI auto-discovers it by walking up from `cwd`. Override with `--config <path>`.
+Three ideas, and everything else follows from them.
 
-```typescript
-import { defineConfig, presets, runners } from "@xevion/tempo";
+**A task is the atom.** A name, a body, tags, requirements, and edges. Nothing else registers
+work.
+
+**A command is a selector, not a runner.** `check` means "everything tagged `check`". Adding a
+task to a tag adds it to the command; there is no second place to list it.
+
+**A body is a shell string, an argv array, or a TypeScript function, and all three are peers.**
+A function body gets the same row, timing, cancellation, and JSON record as a spawned process.
+Reaching for a function is not an escape hatch.
+
+```ts
+import { defineConfig, presets, task } from "@xevion/tempo";
 
 export default defineConfig({
-  subsystems: { /* required, at least one */ },
-  commands: {   /* required — all CLI subcommands (built-in runners + custom) */
-    check: runners.check({ autoFixStrategy: "fix-first" }),
-    fmt: runners.sequential("format-apply", { autoFixFallback: true }),
-    lint: runners.sequential("lint"),
-    dev: runners.dev(),
-    "pre-commit": runners.preCommit(),
-    // ... custom commands inline or as nested groups
+  tasks: [
+    task({ name: "web:types", body: "bunx tsc --noEmit", tags: ["check"] }),
+  ],
+  commands: {
+    check: { description: "Run every check in parallel", tags: ["check"] },
   },
-  preflights: [ /* optional */ ],
-  dev: { /* optional — processes, exitBehavior */ },
-  ci: { /* optional */ },
-  hooks: { /* optional */ },
 });
 ```
 
-`defineConfig()` provides full type inference — subsystem names flow as a union type into all dependent fields (hooks, check options, dev processes, etc.).
+## `task(...)`
 
-## Subsystems
+| Field | Meaning |
+|---|---|
+| `name` | `namespace:short`. The namespace is what `tempo check web` narrows on. |
+| `body` | Shell string, argv array, or `(ctx) => number \| void`. |
+| `tags` | What commands select on. |
+| `needs` | Must succeed first, and is **pulled into the run**. |
+| `after` | Ordering only, **inert unless the target is already selected**. |
+| `requires` | `{ tool }`, `{ env }`, `{ file }`, each with an optional `hint`. |
+| `cwd` | Resolved against the project root, never the invocation directory. |
+| `env` | Extra environment for this task. |
+| `inputs` / `outputs` | Globs that make the task cacheable. |
+| `persistent` | Long-lived. Never a valid `needs` target for a one-shot task. |
+| `watch` | `{ paths, exts?, interrupt?, debounce? }`. Persistent tasks only. |
+| `readyWhen` | Gates dependents on serving rather than on spawning. |
+| `passthrough` | Append the run's arguments to this task. |
+| `lock` | `true`, or a path, to serialize against other tempo processes. |
+| `always` | Stay in the run even when positional targets narrow it. |
 
-Subsystems are the top-level organizational unit. Each represents a project component (frontend, backend, infra, etc.).
+### `needs` vs `after`
 
-```typescript
-subsystems: {
-  frontend: {
-    aliases: ["f", "front", "web"],  // short names for CLI targeting
-    cwd: "web",                       // working directory (relative to project root)
-    alwaysRun: false,                 // if true, always included in tempo check
-    requires: ["bun"],                // tools that must be on PATH
-    lock: true,                       // serialize against other tempo processes in this project
-    commands: {
-      // String shorthand — split on whitespace
-      "format-check": "bunx biome check .",
-      // Array — no splitting, passed directly to spawn
-      "format-apply": ["bunx", "biome", "check", "--write", "."],
-      // Object — full options
-      lint: {
-        cmd: "bunx biome lint .",
-        env: { NODE_ENV: "production" },
-        cwd: "web",                    // override subsystem cwd
-        warnIfExitCode: 2,             // treat as warning, not failure
-        timeout: 120,                  // kill after N seconds
-        requires: ["biome"],           // per-command tool requirements (string shorthand)
-        lock: ".gradle/build.lock",    // named lockfile, overriding the subsystem's
-      },
-      // Tool requirements can also use object form with install hints
-      audit: {
-        cmd: "cargo audit",
-        requires: [{ tool: "cargo-audit", hint: "Install with `cargo install cargo-audit`" }],
-      },
-    },
-    autoFix: {
-      // Maps check command → fix command (both must exist in commands)
-      "format-check": "format-apply",
-    },
-  },
-}
+The distinction is the one most task runners get wrong, so use it deliberately.
+
+```ts
+// Pulls gen:bindings into the run and fails if it fails.
+task({ name: "web:type-check", body: "bun run check", needs: ["gen:bindings"] })
+
+// Runs after mod:verify when mod:verify was already selected, and never pulls it in.
+// Use this for a reporting step that must still run when the thing it reports on failed.
+task({ name: "mod:report", body: "...", tags: ["check"], after: ["mod:verify"] })
 ```
 
-**Key behaviors:**
-- `aliases` enable short CLI targeting: `tempo check f` = `tempo check frontend`
-- `cwd` is inherited by all commands unless overridden per-command
-- `alwaysRun: true` subsystems run even when other targets are specified (use for security audits, etc.)
-- `requires` checks tool availability before running; skips with a warning if missing
-- Command `env` is merged on top of `process.env`, not replacing it
-- `lock` serializes a command against every other tempo process in the same project, for toolchains whose incremental caches two concurrent invocations would corrupt. `true` derives a lockfile from the project root, a string names one relative to it (so other tools can `flock` the same path). A blocked command waits and reports the wait; it never fails. Requires `flock(1)`; without it everything runs unlocked after one warning
+A skipped task closes its gate, so anything that `needs` it is reported as **blocked** rather
+than silently passing. That is usually what you want; when it is not, `after` is the tool.
+
+## Requirements
+
+Declare what the environment must provide rather than probing for it in a body. Missing
+requirements **skip** the task locally and **fail** it under CI, so a machine without a tool
+loses a check visibly instead of pretending.
+
+```ts
+task({
+  name: "backend:sqlc-diff",
+  body: "sqlc diff",
+  tags: ["check"],
+  requires: [{ tool: "sqlc", hint: "run `tempo generate` to regenerate sqlc code" }],
+})
+```
+
+A `file` requirement is the idiomatic way to express "this package was never installed":
+
+```ts
+const WEB_DEPS = { file: "web/node_modules", hint: "run `bun install` inside web/ first" };
+```
+
+## Caching replaces preflights
+
+There is no preflight system. A generator is an ordinary task that declares what it reads and
+writes, and the engine skips it while its inputs are unchanged. Fingerprints are content
+hashes, not timestamps.
+
+```ts
+task({
+  name: "gen:tygo",
+  body: "tygo generate",
+  tags: ["check", "generate"],
+  requires: [{ tool: "tygo" }],
+  inputs: ["internal/server/types.go"],
+  outputs: ["web/src/lib/types.gen.ts"],
+})
+```
+
+A cache hit satisfies dependents, so anything that `needs` it proceeds immediately. Everything
+tempo writes lives in `.tempo/`, which ignores itself.
+
+**Do not gate a generator on mtimes inside its own body.** That was the v1 pattern; the engine
+does it now, and doing it twice means a stale artifact survives a `--no-cache` run.
+
+## Dev sessions
+
+A persistent task with a `watch` spec runs under a supervisor that restarts it when its files
+change, re-running its `needs` first.
+
+```ts
+task({ name: "api:dev-build", body: ["cargo", "build", "-p", "server"] }),
+task({
+  name: "api:dev",
+  body: ["./target/debug/server"],
+  tags: ["dev"],
+  persistent: true,
+  needs: ["api:dev-build"],
+  watch: {
+    paths: ["crates/server/src", "migrations"],
+    exts: [".rs", ".sql"],
+    interrupt: true,
+    debounce: 300,
+  },
+  readyWhen: async () => {
+    try {
+      const res = await fetch("http://127.0.0.1:8080/health", { signal: AbortSignal.timeout(1000) });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  },
+  readyPollMs: 150,
+}),
+task({
+  name: "web:dev",
+  body: ["bun", "run", "dev"],
+  cwd: "packages/web",
+  tags: ["dev"],
+  persistent: true,
+  // Waits for readyWhen, so vite never proxies to a backend that has not bound its listener.
+  needs: ["api:dev"],
+}),
+```
+
+`interrupt: true` is **mandatory** whenever the rebuild rewrites the running binary: a live
+executable cannot be replaced in place. Without it, tempo rebuilds first and swaps after, which
+is what you want when a failed build should cost nothing.
+
+Set `exitBehavior: "first-exits"` on the `dev` command so the whole session ends when one
+process does.
 
 ## Presets
 
-Factory functions that return `SubsystemConfig` objects. Spread into subsystem definitions and override as needed.
+Presets generate tasks. Nothing they return is privileged.
 
-### `presets.rust(options?)`
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `manifestPath` | `string` | — | Path to `Cargo.toml` |
-| `features` | `string[]` | — | Feature flags |
-| `allFeatures` | `boolean` | — | Use `--all-features` |
-| `testFilter` | `string` | — | nextest filter expression |
-| `bin` | `string` | — | Binary name for build |
-
-Provides: `format-check`, `format-apply`, `lint`, `test`, `build` commands with `cargo fmt`, `clippy`, `nextest`, and `cargo build`.
-
-```typescript
-backend: {
-  ...presets.rust({ testFilter: "not test(export_bindings)", bin: "server" }),
-  aliases: ["b", "back"],
-  cwd: "backend",
-},
-```
-
-### `presets.biome(options?)`
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `svelte` | `boolean` | `false` | Add `svelte-check` type-check command |
-| `vitest` | `boolean` | `svelte` | Add `vitest run` test command |
-| `cwd` | `string` | — | Working directory |
-
-Provides: `format-check`, `format-apply`, `lint`, `build`, and optionally `type-check` and `test`.
-
-```typescript
-frontend: {
-  ...presets.biome({ svelte: true }),
-  aliases: ["f", "front"],
-  cwd: "web",
-},
-```
-
-### `presets.go(options?)`
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `cwd` | `string` | — | Working directory |
-| `race` | `boolean` | `true` | Add `-race` to tests |
-| `timeout` | `string` | `"5m"` | Lint timeout |
-| `buildTarget` | `string` | `"./cmd/server"` | Build target |
-
-Provides: `format-check`, `format-apply`, `lint`, `build`, `test` with `goimports`, `golangci-lint`, `go build/test`.
-
-### `presets.gradle(options?)`
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `cwd` | `string` | — | Gradle project directory |
-| `quiet` | `boolean` | `true` | Add `--quiet` |
-| `configurationCache` | `boolean` | `true` | Enable `--configuration-cache` |
-| `subprojects` | `string[]` | — | Subproject targets for compile |
-| `lock` | `boolean \| string` | — | Serialize every command in the subsystem on one lockfile |
-
-Provides: `format-check`, `format-apply`, `lint`, `compile`, `test` with Spotless, ktlint, Detekt, Gradle.
-
-### Combining presets with overrides
-
-Presets return plain objects — spread them and override any field:
-
-```typescript
-backend: {
-  ...presets.rust(),
-  aliases: ["b"],           // override preset aliases
-  commands: {
-    ...presets.rust().commands,
-    test: "cargo test",     // override specific command
-    "custom-check": "my-tool check",  // add extra command
+```ts
+...presets.rust({
+  name: "api",
+  override: {
+    lint: "cargo clippy --all-targets --all-features -- -D warnings",
+    build: false,   // drop it entirely
   },
-},
+})
 ```
 
-## Check Runner
+An override naming a task the preset does not produce is an error, not a silent no-op.
 
-```typescript
-check: {
-  exclude: ["frontend:build"],        // skip specific subsystem:action pairs
-  autoFixStrategy: "fix-first",       // "fix-first" (default) | "fix-on-fail"
-  options: {
-    "backend:test": {
-      env: { DATABASE_URL: "postgresql://localhost/dev" },
-      warnIfExitCode: 2,
-      timeout: 120,
-    },
-  },
-  renderer: undefined,                // custom renderer function (escape hatch)
-},
-```
+| Preset | Tasks |
+|---|---|
+| `presets.rust` | `format`, `format-fix`, `lint`, `test`, `build` |
+| `presets.biome` | `format`, `format-fix`, `lint`, `build`; `type-check`/`test` via `svelte`/`vitest` |
+| `presets.go` | `format`, `format-fix`, `lint`, `build`, `test` |
+| `presets.gradle` | `format`, `format-fix`, `lint`, `compile`, `test` |
 
-**Auto-fix strategies:**
-- `"fix-first"` (default): Run all fixers serially, then run all checks in parallel. Simpler.
-- `"fix-on-fail"`: Run all checks in parallel first, fix only failures, re-verify fixed checks. More efficient when most checks pass.
+Shared options: `name`, `cwd`, `override`, `tags`, `lock`.
 
-**Check matrix:** All commands across all subsystems are included by default. Use `exclude` to remove specific pairs. Adding a command to a subsystem automatically includes it in `tempo check`.
+**Presets have no `env` option.** When a toolchain needs one (`SQLX_OFFLINE=true`), override
+the body with an env-prefixed string — tempo runs it through a shell — or write the tasks by
+hand. A preset earns its keep for a homogeneous toolchain; a bespoke web setup where nearly
+everything is overridden is clearer written out.
 
-Config-defined flags can be added to check via `check.flags`:
-```typescript
-check: {
-  flags: {
-    strict: { type: Boolean, description: "Enable strict mode" },
-  },
-  // ... other check config
+## Commands
+
+```ts
+commands: {
+  check: { description: "...", tags: ["check"] },
+  fmt: { description: "...", tags: ["format"], concurrency: 1 },
+  dev: { description: "...", tags: ["dev"], exitBehavior: "first-exits" },
+  deploy: { description: "...", tasks: ["deploy:run"] },
 }
 ```
 
-CLI: `tempo check [targets...] [--fix] [--strict]`
+| Field | Meaning |
+|---|---|
+| `tags` / `tasks` | What the command selects. Both may be given. |
+| `concurrency` | Cap for this command. Use `1` for formatters that write the same files. |
+| `exitBehavior` | `first-exits` ends the run when the first persistent task exits. |
+| `requirementPolicy` | `skip` \| `warn` \| `fail`. Defaults to `fail` under CI. |
+| `passthrough` | Positionals are arguments, not selectors. |
 
-## Dev Runner
+Positional arguments normally **narrow** a selection (`tempo check web`), and narrowing keeps
+dependencies: a narrowed run still pulls in what the surviving tasks need, and `always: true`
+tasks survive it.
 
-```typescript
-dev: {
-  flags: {
-    embed: { type: Boolean, alias: "e", description: "Embed frontend" },
-    verbose: { type: Boolean, alias: "v", description: "Verbose output" },
-  },
-  exitBehavior: "first-exits",  // "first-exits" (default) | "all-exit"
-  processes: {
-    frontend: {
-      type: "unmanaged",       // spawn and let it manage itself
-      cmd: "bun run dev",
-    },
-    backend: {
-      type: "managed",         // tempo manages file watching + rebuild cycle
-      watch: {
-        dirs: ["src"],
-        exts: [".rs"],
-        extraPaths: ["Cargo.toml", "Cargo.lock"],
-        debounce: 200,
-      },
-      build: { cmd: "cargo build --bin server", verbose: false },
-      run: { cmd: "./target/debug/server", passthrough: true },
-      interrupt: true,         // kill current build on new changes
-    },
-  },
-},
+### Commands that take arguments
+
+There are no per-command flags. A command whose arguments are its own point sets
+`passthrough: true`, and the task reads `ctx.args`:
+
+```ts
+task({
+  name: "kb:selfplay",
+  body: ["go", "run", "./cmd/kbctl", "selfplay"],
+  passthrough: true,
+}),
+// commands: { selfplay: { tasks: ["kb:selfplay"], passthrough: true } }
+// Invoked as: tempo selfplay -- --noise 0.2 --model random
 ```
 
-**Process types:**
-- `"unmanaged"`: Just spawns the command. Use for tools with built-in watch (Vite, Air, nodemon).
-- `"managed"`: Tempo manages full lifecycle via BackendWatcher (5-state machine: building -> idle -> running -> building_with_server -> swapping). Use for compiled backends.
+For subcommand-style verbs (`tempo db -- start|reset|rm`), branch on `ctx.args[0]` in a
+function body and `ctx.fail()` on an unknown one.
 
-CLI: `tempo dev [targets...] [--flags...]`
+## Function bodies
 
-## Preflights
+`ctx` gives logic somewhere better to go than a shell:
 
-Run before checks to detect and regenerate stale artifacts.
+| Member | Use |
+|---|---|
+| `ctx.run(argv, opts?)` | Run a command for its exit code. |
+| `ctx.capture(argv, opts?)` | Run and collect `{ stdout, stderr, code }`. |
+| `ctx.log(message)` | A line attributed to this task. |
+| `ctx.fail(message)` | Abort with a message rather than a stack trace. |
+| `ctx.cwd` | The directory this task runs in. |
+| `ctx.args` | Passthrough arguments, empty unless the task declares `passthrough`. |
+| `ctx.signal` | Aborted on Ctrl-C; pass it to `fetch`. |
 
-```typescript
-preflights: [
-  // Declarative — tempo handles mtime comparison
-  {
-    label: "bindings",
-    sources: { dir: "src", pattern: "**/*.rs" },
-    artifacts: { dir: "web/src/lib/bindings", pattern: "*.ts" },
-    regenerate: "cargo test --lib export_bindings",
-    reason: "Rust sources changed",
-  },
-  // Function escape hatch
-  async (ctx) => {
-    // ctx.logger.info/warn/error
-    // ctx.fail("message") — abort with error
-    // Import primitives: newestMtime, ensureFresh from "@xevion/tempo/preflight"
-  },
-],
+`opts` accepts `{ cwd, env }`, with `cwd` resolved against the task's own directory.
+
+## Locking
+
+`lock: true` serializes a task against every other tempo process in the project — for a tool
+whose incremental cache corrupts when two invocations race. A string names its own lock file,
+so tasks contending for one cache can share a lock without taking the rest. A blocked task
+waits rather than failing, and the wait is reported beside the work, never charged to it:
+
+```
+✓ mod:verify (41.2s, waited 12.8s)
 ```
 
-Preflights run serially. A failure stops the check run immediately.
+## CLI
 
-## Custom Commands
-
-Custom commands live in the `commands` config key alongside built-in runners. They become top-level CLI subcommands. Nested objects create command groups.
-
-```typescript
-commands: {
-  // Built-in runners
-  check: runners.check({ autoFixStrategy: "fix-first" }),
-  fmt: runners.sequential("format-apply", { autoFixFallback: true }),
-
-  // File path — default export must be a defineCommand result
-  smoke: "./scripts/smoke.ts",
-
-  // Inline function — no flags, receives CommandContext
-  seed: async (ctx) => {
-    ctx.run("bun run seed");
-    return 0;
-  },
-
-  // Inline spec — with flags and description
-  deploy: {
-    description: "Deploy to production",
-    flags: {
-      dry: { type: Boolean, alias: "d", description: "Dry run" },
-      env: { type: String, default: "staging", description: "Target environment" },
-    },
-    run: async (ctx) => {
-      if (ctx.flags.dry) {
-        console.error(ctx.fmt.c.catBlue("Dry run mode"));
-      }
-      ctx.run(`deploy --env ${ctx.flags.env}`);
-      return 0;
-    },
-  },
-
-  // Nested command group — `tempo docker build`, `tempo docker run`
-  docker: {
-    build: {
-      description: "Build Docker image",
-      run: async (ctx) => { ctx.run(["docker", "build", "-t", "myapp", "."]); return 0; },
-    },
-    run: {
-      description: "Run Docker container",
-      run: async (ctx) => { ctx.run(["docker", "run", "--rm", "myapp"]); return 0; },
-    },
-  },
-},
+```bash
+tempo check              # everything tagged check
+tempo check web api      # narrowed, dependencies preserved
+tempo list               # every task with tags and dependencies
+tempo run web:types      # specific tasks by name
 ```
 
-### defineCommand (for file-based custom commands)
+Global flags are extracted before the command, so `--` survives: `--config <path>`,
+`--dry-run`, `--json`, `-c/--concurrency <n>`, `--no-cache`.
 
-```typescript
-// scripts/smoke.ts
-import { defineCommand } from "@xevion/tempo";
+`--dry-run` prints the layers, which is the fastest way to check that an edge landed where you
+meant it. `--json` emits the raw record stream on stdout.
 
-export default defineCommand({
-  name: "smoke",
-  description: "Run smoke tests against the staging API",
-  flags: {
-    url: { type: String, default: "http://localhost:3000", description: "Base URL" },
-    verbose: { type: Boolean, alias: "v", description: "Verbose output" },
-  },
-  run: async (ctx) => {
-    // ctx.group — ProcessGroup for managed spawning
-    // ctx.config — resolved TempoConfig (null if run standalone)
-    // ctx.flags — typed flags { url: string, verbose: boolean }
-    // ctx.args — positional arguments after flags
-    // ctx.run() — synchronous execution (inherited stdio)
-    // ctx.runPiped() — synchronous piped execution
-    // ctx.fmt — formatting utilities (ctx.fmt.c for Catppuccin colors via ansis)
+## Conventions
 
-    ctx.run(`curl -sf ${ctx.flags.url}/health`);
-    return 0;
-  },
-}, import.meta.main);  // second arg enables standalone execution: bun scripts/smoke.ts
+**One namespace per component**, matching what `tempo check <name>` should narrow to.
+
+**Formatters that write the same files need an `after` edge**, not just `concurrency: 1`:
+
+```ts
+task({ name: "app:lint-fix", body: "...", tags: ["format"], after: ["app:format-fix"] })
 ```
 
-## Lifecycle Hooks
+**A repo-wide formatter is one task, not one per package.** If a single `biome.json` is the
+authority, per-package steps miss root files.
 
-```typescript
-hooks: {
-  "before:check": async (ctx) => {
-    // ctx.config, ctx.flags, ctx.targets, ctx.env, ctx.logger, ctx.addCleanup, ctx.fail
-  },
-  "after:check": async (ctx, results) => {
-    // results: Map<string, CollectResult> — keyed by "subsystem:action"
-  },
-  "before:check:each": async (ctx, check) => {
-    // check: { name, subsystem, action, cmd }
-  },
-  "after:check:each": async (ctx, check, result) => {
-    // result: { name, stdout, stderr, exitCode, elapsed }
-  },
-  "before:dev": async (ctx) => { /* validate env, start docker, etc. */ },
-  "after:dev": async (ctx) => { /* cleanup */ },
-},
-```
+**Advisory audits want `always: true`.** Advisories move without the tree changing, so they
+should survive `tempo check <one-component>`.
 
-- `before:*` hooks that throw abort the runner
-- `after:*` hooks run even on failure (for cleanup)
-- `ctx.targets` is typed as `Set<"frontend" | "backend" | ...>` (not `Set<string>`)
+**Prefer argv arrays for anything long-lived.** A string with shell metacharacters runs under
+`sh -c`, and on Debian `/bin/sh` is dash, which does not forward SIGTERM.
 
-## CI Configuration
+**Do not wrap a script tempo would only forward to.** A tempo hop costs ~110ms; if a command
+passes its arguments through unchanged and adds nothing, let the Justfile call the script.
 
-```typescript
-ci: {
-  enabled: undefined,           // auto-detect from CI env vars (default)
-  inject: { CI: "1" },         // env vars added to all subprocesses in CI
-  groupedOutput: true,          // ::group:: annotations for GitHub Actions
-},
-```
+## Anti-patterns
 
-Auto-detects: `CI`, `GITHUB_ACTIONS`, `GITLAB_CI`, `CIRCLECI`, `JENKINS_URL`, `BUILDKITE`.
+- **`ctx` probing that `requires` already covers.** `if (!hasTool("air")) fail(...)` is
+  `requires: [{ tool: "air" }]`.
+- **mtime gating inside a generator body.** Use `inputs`/`outputs`.
+- **Bun-only APIs in a config that Node might load.** `import.meta.dir` is `undefined` under
+  Node; use `import.meta.dirname`. A project with no `bun.lock` runs the config under Node.
+- **A `needs` edge where `after` was meant.** If the dependent should still run when the
+  dependency fails, it is `after`.
+- **Reaching for a shell to do string work.** A function body with `ctx.capture` is clearer
+  and gets proper output attribution.
 
-## CLI Reference
+## Removed in 0.2.0
 
-| Command | Description |
-|---------|-------------|
-| `tempo check [targets...] [--fix] [flags...]` | Parallel checks with spinner, auto-fix, preflights |
-| `tempo dev [targets...] [flags...]` | Multi-process dev server manager |
-| `tempo fmt [targets...] [flags...] [-- passthrough...]` | Sequential formatting |
-| `tempo lint [targets...] [flags...] [-- passthrough...]` | Sequential linting |
-| `tempo pre-commit [flags...]` | Staged-file formatter with partial staging detection |
-| `tempo <command> [args...]` | Any command defined in config.commands |
-| `tempo <group> <subcommand> [args...]` | Nested command groups |
+`subsystems`, `runners.*`, `preflights`, `hooks`, `autoFix`, `defineCommand`, and the
+`proc` / `preflight` / `targets` / `watch` / `octocov` subpaths are gone. The only exports are
+`@xevion/tempo`, `@xevion/tempo/engine`, and `@xevion/tempo/fmt`.
 
-Global flags (pre-extracted, work with all commands): `--config <path>`, `-v`/`-vv`/`-vvv`, `-q`/`--quiet`, `--log-file <path>`, `--help`, `--version`
-
-All runner commands accept config-defined flags from their respective config sections (e.g., `check.flags`, `dev.flags`).
-
-Target resolution: positional args resolve via alias map. No targets = all subsystems.
-
-## Primitives (Layer 1)
-
-For advanced use cases, import primitives directly:
-
-| Import | Provides |
-|--------|----------|
-| `@xevion/tempo/proc` | `ProcessGroup`, `run`, `runPiped`, `spawnCollect`, `drainAsCompleted` |
-| `@xevion/tempo/fmt` | `c` (Catppuccin Mocha colors via ansis — e.g., `c.catBlue`, `c.catGreen`, `c.catRed`), `formatDuration`, `formatTokens`, `termWidth`, `wordWrap`, `parseArgs`, TTY detection |
-| `@xevion/tempo/preflight` | `newestMtime`, `ensureFresh` |
-| `@xevion/tempo/targets` | `resolveTargets`, `isAll`, `targetLabel` |
-| `@xevion/tempo/watch` | `BackendWatcher` (5-state machine) |
-| `@xevion/tempo/octocov` | `createOctocovConfig`, `testablePackages` |
-
-## Common Patterns
-
-### Multi-language monorepo
-
-```typescript
-export default defineConfig({
-  subsystems: {
-    frontend: { ...presets.biome({ svelte: true, vitest: true }), cwd: "web", aliases: ["f"] },
-    backend: { ...presets.rust({ bin: "server" }), aliases: ["b"] },
-    infra: { ...presets.go({ buildTarget: "./cmd/migrate" }), cwd: "infra", aliases: ["i"] },
-    security: {
-      alwaysRun: true,
-      aliases: ["sec"],
-      commands: { audit: "bun audit --audit-level=moderate" },
-    },
-  },
-  check: {
-    exclude: ["frontend:build"],  // don't build frontend during checks
-    autoFixStrategy: "fix-first",
-  },
-});
-```
-
-### Minimal single-subsystem
-
-```typescript
-export default defineConfig({
-  subsystems: {
-    app: {
-      aliases: ["a"],
-      commands: {
-        "format-check": "prettier --check .",
-        "format-apply": "prettier --write .",
-        lint: "eslint .",
-        test: "vitest run",
-        build: "vite build",
-      },
-      autoFix: { "format-check": "format-apply" },
-    },
-  },
-});
-```
-
-### Adding custom checks alongside presets
-
-```typescript
-backend: {
-  ...presets.rust(),
-  commands: {
-    ...presets.rust().commands,
-    "sql-check": { cmd: "cargo sqlx prepare --check", requires: [{ tool: "sqlx", hint: "Install with `cargo install sqlx-cli`" }] },
-    "schema-check": "./scripts/check-schema.sh",
-  },
-},
-```
-
-## Type Requirements
-
-- TypeScript 5.0+ for `const` type parameters in `defineConfig`
-- TypeScript 5.4+ for `NoInfer` (autoFix type validation)
-- Fallback for older TS: `as const satisfies TempoConfig`
-
-## Best Practices
-
-1. **Use presets as a starting point** — spread and override rather than writing commands from scratch
-2. **Keep aliases short** — single letters for frequently targeted subsystems
-3. **Use `alwaysRun`** for cross-cutting concerns (security audits, license checks)
-4. **Prefer `fix-first` strategy** unless your checks are expensive and rarely fail
-5. **Use `requires`** to gracefully skip checks when tools aren't installed
-6. **Use `requires` with hints** for tool dependencies: `requires: [{ tool: "sqlx", hint: "Install with..." }]`
-7. **Use preflights** for codegen/bindings rather than manual regeneration
-8. **Keep custom commands in separate files** with `defineCommand` for complex logic; use inline functions/specs for simple ones
-9. **Use `warnIfExitCode`** for checks that should surface issues without blocking the pipeline
+| Was | Now |
+|---|---|
+| `subsystems: { web: { commands: {...} } }` | one `task` per command, named `web:*` |
+| `runners.check()` | `commands.check = { tags: ["check"] }` |
+| `preflights` | tasks with `inputs`/`outputs` |
+| `hooks["before:check"]` | a task others declare `after` |
+| `autoFix` | a `format` task the `fmt` command selects |
+| `alwaysRun` | `always: true` |
+| `dev.processes` | `persistent: true` tasks tagged `dev` |
+| `dependsOn` | `needs`, released on `readyWhen` |
+| `parameters` / `flags` | `passthrough: true` and `ctx.args` |
