@@ -31,6 +31,7 @@ export {
 } from "./engine/types.ts";
 export { type Watcher, type WatchSpec, watchPaths } from "./engine/watch.ts";
 export { TempoAbortError, TempoConfigError } from "./errors.ts";
+export * as presets from "./presets.ts";
 export { jsonSink, ttySink } from "./render.ts";
 export type { CommandSpec, ResolvedConfig, TempoConfig } from "./types.ts";
 

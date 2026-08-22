@@ -1,13 +1,8 @@
 import { createHash } from "node:crypto";
-import {
-	type Dirent,
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	writeFileSync,
-} from "node:fs";
+import { type Dirent, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import type { Task } from "./types.ts";
+import { ensureWorkDir } from "./workdir.ts";
 
 /** Directories never worth walking for inputs or outputs. */
 const PRUNED = new Set(["node_modules", ".git", ".tempo"]);
@@ -91,7 +86,11 @@ export function globFiles(root: string, patterns: string[]): string[] {
 /** True when every declared output pattern matches at least one file. */
 export function outputsPresent(root: string, patterns: string[]): boolean {
 	if (patterns.length === 0) return true;
-	return patterns.every((p) => globFiles(root, [p]).length > 0);
+	const all: string[] = [];
+	walk(root, root, all);
+	return patterns
+		.map(globToRegExp)
+		.every((m) => all.some((file) => m.test(file)));
 }
 
 /**
@@ -145,7 +144,7 @@ export function writeFingerprint(
 ): void {
 	const file = cacheFile(root, name);
 	try {
-		mkdirSync(join(root, CACHE_DIR), { recursive: true });
+		ensureWorkDir(root, "cache");
 		writeFileSync(file, `${JSON.stringify({ fingerprint: value })}\n`);
 	} catch {
 		// A cache that cannot be written is a miss next time, not a failure.

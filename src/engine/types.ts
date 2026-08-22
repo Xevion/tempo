@@ -46,6 +46,20 @@ export interface Task {
 	watch?: WatchSpec;
 	/** Append the run's passthrough arguments to this task's command. */
 	passthrough?: boolean;
+	/**
+	 * Serialize this task against every other tempo process in the project.
+	 *
+	 * `true` takes the project-wide lock; a string names the lock file, so tasks
+	 * that contend for one tool's cache can share a lock without taking the rest.
+	 */
+	lock?: boolean | string;
+	/**
+	 * Stay in the run even when positional targets narrow it.
+	 *
+	 * For a check that covers the whole tree, so scoping to one component does
+	 * not quietly drop the pass that covers everything.
+	 */
+	always?: boolean;
 	/** Gates dependents on serving rather than on spawning. */
 	readyWhen?: (ctx: RunContext) => Promise<boolean> | boolean;
 	readyTimeoutMs?: number;
@@ -62,13 +76,23 @@ export interface Captured {
  * What a function body is handed. These primitives exist so that logic which
  * would otherwise reach for a shell has somewhere better to go.
  */
+export interface InvokeOptions {
+	/** Resolved against the task's own directory. */
+	cwd?: string;
+	env?: Record<string, string>;
+}
+
 export interface RunContext {
 	signal: AbortSignal;
+	/** The directory this task runs in, resolved against the project root. */
+	cwd: string;
+	/** Passthrough arguments, empty unless the task declares `passthrough`. */
+	args: string[];
 	log(message: string): void;
 	/** Run a command and collect its output, replacing `$(...)`. */
-	capture(argv: string[] | string): Promise<Captured>;
+	capture(argv: string[] | string, opts?: InvokeOptions): Promise<Captured>;
 	/** Run a command for its exit code. */
-	run(argv: string[] | string): Promise<number>;
+	run(argv: string[] | string, opts?: InvokeOptions): Promise<number>;
 	/** Fail this task with a message rather than a stack trace. */
 	fail(message: string): never;
 }
@@ -84,9 +108,9 @@ export class GraphError extends Error {
 }
 
 export type Outcome =
-	| { kind: "ok"; code: 0; ms: number }
+	| { kind: "ok"; code: 0; ms: number; waited?: number }
 	| { kind: "cached"; ms: number }
-	| { kind: "fail"; code: number; ms: number; error?: string }
+	| { kind: "fail"; code: number; ms: number; waited?: number; error?: string }
 	| { kind: "skip"; reason: string; missing: Requirement[] }
 	| { kind: "blocked"; by: string }
 	| { kind: "cancelled"; ms: number };

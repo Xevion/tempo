@@ -1,37 +1,35 @@
-import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import pkg from "../package.json" with { type: "json" };
 
-/** Derive subpath names from package.json exports — single source of truth */
-const SUBPATH_NAMES = Object.keys(pkg.exports)
-	.filter((k) => k.startsWith("./") || k === ".")
-	.map((k) => (k === "." ? "index" : k.slice(2)));
+type ExportConditions = Record<string, string>;
+
+/**
+ * Map every published specifier to the file that satisfies it under this runtime.
+ *
+ * The targets come from package.json rather than from the subpath's name, so a
+ * `./engine` that lives at `engine/index.ts` resolves like any flat entrypoint.
+ */
+function exportTargets(packageRoot: string, isBun: boolean): ExportConditions {
+	const targets: ExportConditions = {};
+	for (const [subpath, conditions] of Object.entries(
+		pkg.exports as Record<string, ExportConditions>,
+	)) {
+		const target = (isBun ? conditions.bun : undefined) ?? conditions.default;
+		if (!target) continue;
+		const specifier =
+			subpath === "." ? pkg.name : `${pkg.name}${subpath.slice(1)}`;
+		targets[specifier] = resolve(packageRoot, target);
+	}
+	return targets;
+}
 
 /** Register virtual modules so configs can import "@xevion/tempo" with no node_modules. */
 export async function initRegistration(): Promise<void> {
-	const selfDir = resolve(dirname(fileURLToPath(import.meta.url)));
 	const isBun = "Bun" in globalThis;
-
-	function resolveExportPath(name: string): string {
-		if (isBun) {
-			const srcDir = existsSync(join(selfDir, "index.ts"))
-				? selfDir
-				: resolve(selfDir, "..", "src");
-			return join(srcDir, `${name}.ts`);
-		}
-		const distDir = existsSync(join(selfDir, "index.mjs"))
-			? selfDir
-			: resolve(selfDir, "..", "dist");
-		return join(distDir, `${name}.mjs`);
-	}
-
-	const subpathExports: Record<string, string> = {};
-	for (const name of SUBPATH_NAMES) {
-		const specifier =
-			name === "index" ? "@xevion/tempo" : `@xevion/tempo/${name}`;
-		subpathExports[specifier] = resolveExportPath(name);
-	}
+	// This module ships in both src/ and dist/, so its parent is the package root either way.
+	const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+	const subpathExports = exportTargets(packageRoot, isBun);
 
 	if (isBun) {
 		const { plugin } = await import("bun");
@@ -46,37 +44,48 @@ export async function initRegistration(): Promise<void> {
 				}
 			},
 		});
-	} else {
-		const mod = await import("node:module");
-		const mapping = Object.fromEntries(
-			Object.entries(subpathExports).map(([spec, path]) => [
-				spec,
-				pathToFileURL(path).href,
-			]),
-		);
+		return;
+	}
 
-		// registerHooks runs in-thread and needs no serialized loader; register is deprecated.
-		if (typeof mod.registerHooks === "function") {
-			mod.registerHooks({
-				resolve(specifier, context, nextResolve) {
-					const url = mapping[specifier];
-					return url
-						? { url, shortCircuit: true }
-						: nextResolve(specifier, context);
-				},
-			});
-			return;
-		}
+	const mod = await import("node:module");
+	const mapping = Object.fromEntries(
+		Object.entries(subpathExports).map(([spec, path]) => [
+			spec,
+			pathToFileURL(path).href,
+		]),
+	);
 
-		const loaderCode = `
-			const mapping = ${JSON.stringify(mapping)};
-			export function resolve(specifier, context, nextResolve) {
-				if (mapping[specifier]) {
-					return { url: mapping[specifier], shortCircuit: true };
+	const published = Object.keys(mapping).sort().join(", ");
+
+	// registerHooks runs in-thread and needs no serialized loader; register is deprecated.
+	if (typeof mod.registerHooks === "function") {
+		mod.registerHooks({
+			resolve(specifier, context, nextResolve) {
+				const url = mapping[specifier];
+				if (url) return { url, shortCircuit: true };
+				// Node would blame the package for a subpath it does not publish.
+				if (specifier.startsWith(`${pkg.name}/`)) {
+					throw new Error(
+						`"${specifier}" is not published by ${pkg.name}; it exports ${published}`,
+					);
 				}
 				return nextResolve(specifier, context);
-			}
-		`;
-		mod.register(`data:text/javascript,${encodeURIComponent(loaderCode)}`);
+			},
+		});
+		return;
 	}
+
+	const loaderCode = `
+		const mapping = ${JSON.stringify(mapping)};
+		export function resolve(specifier, context, nextResolve) {
+			if (mapping[specifier]) {
+				return { url: mapping[specifier], shortCircuit: true };
+			}
+			if (specifier.startsWith(${JSON.stringify(`${pkg.name}/`)})) {
+				throw new Error(specifier + " is not published by ${pkg.name}; it exports ${published}");
+			}
+			return nextResolve(specifier, context);
+		}
+	`;
+	mod.register(`data:text/javascript,${encodeURIComponent(loaderCode)}`);
 }

@@ -35,6 +35,12 @@ export class Graph {
 
 	private validate(): void {
 		for (const t of this.tasks.values()) {
+			// A persistent task never exits, so its lock would never be released.
+			if (t.lock && t.persistent) {
+				throw new GraphError(
+					`task "${t.name}" cannot be both persistent and locked`,
+				);
+			}
 			for (const dep of [...t.needs, ...t.after]) {
 				if (!this.tasks.has(dep)) {
 					throw new GraphError(

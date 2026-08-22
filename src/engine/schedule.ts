@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import {
 	fingerprint,
 	isCacheable,
@@ -13,11 +14,13 @@ import {
 	Spawned,
 } from "./exec.ts";
 import type { Graph } from "./graph.ts";
+import { acquireLock, lockPath } from "./lock.ts";
 import { supervise } from "./supervise.ts";
 import {
 	type EngineEvent,
 	type EventSink,
 	GraphError,
+	type InvokeOptions,
 	type Outcome,
 	type RequirementPolicy,
 	type RunContext,
@@ -26,6 +29,7 @@ import {
 } from "./types.ts";
 
 const DEFAULT_CONCURRENCY = 8;
+const noop = (): void => {};
 const DEFAULT_READY_TIMEOUT_MS = 30_000;
 const DEFAULT_READY_POLL_MS = 250;
 
@@ -98,14 +102,23 @@ class Semaphore {
 	}
 }
 
+/** Locally a missing tool skips its task; CI must not silently lose coverage. */
 function defaultPolicy(): RequirementPolicy {
-	return process.env.CI ? "fail" : "warn";
+	return process.env.CI ? "fail" : "skip";
 }
 
 /** Map an exit code to an outcome, preserving cancellation. */
-function codeOutcome(code: number, aborted: boolean, ms: number): Outcome {
+function codeOutcome(
+	code: number,
+	aborted: boolean,
+	ms: number,
+	waited = 0,
+): Outcome {
 	if (aborted && code !== 0) return { kind: "cancelled", ms };
-	return code === 0 ? { kind: "ok", code: 0, ms } : { kind: "fail", code, ms };
+	const wait = waited >= 1 ? { waited } : {};
+	return code === 0
+		? { kind: "ok", code: 0, ms, ...wait }
+		: { kind: "fail", code, ms, ...wait };
 }
 
 function errorOutcome(err: unknown, aborted: boolean, ms: number): Outcome {
@@ -183,7 +196,7 @@ export async function run(
 
 	/** The outcome dictated by unmet requirements, or null to proceed. */
 	const requirementOutcome = (t: Task): Outcome | null => {
-		const missing = missingRequirements(t.requires);
+		const missing = missingRequirements(t.requires, rootDir);
 		if (missing.length === 0) return null;
 		const described = missing.map(describeRequirement).join(", ");
 		if (policy === "warn") {
@@ -223,7 +236,13 @@ export async function run(
 		}
 
 		const began = performance.now();
-		const code = await runBody(d, sig, emit, undefined, passthrough, color);
+		const code = await runBody(d, {
+			signal: sig,
+			emit,
+			rootDir,
+			passthrough,
+			color,
+		});
 		const outcome = codeOutcome(code, sig.aborted, performance.now() - began);
 		if (outcome.kind === "ok" && stamp) writeFingerprint(rootDir, dep, stamp);
 		emit({ type: "task-settled", ts: nowIso(), task: dep, outcome });
@@ -243,15 +262,32 @@ export async function run(
 	};
 
 	/** Watched tasks run under a supervisor; everything else runs once. */
-	const runSupervised = (t: Task, sig: AbortSignal): Promise<number> => {
+	const bodyOptions = (
+		t: Task,
+		sig: AbortSignal,
+		onWaited: (ms: number) => void,
+	): BodyOptions => ({
+		signal: sig,
+		emit,
+		rootDir,
+		gate: gates.get(t.name),
+		passthrough,
+		color,
+		onWaited,
+	});
+
+	const runSupervised = (
+		t: Task,
+		sig: AbortSignal,
+		onWaited: (ms: number) => void,
+	): Promise<number> => {
 		if (!t.watch || !t.persistent) {
-			return runBody(t, sig, emit, gates.get(t.name), passthrough, color);
+			return runBody(t, bodyOptions(t, sig, onWaited));
 		}
 		return supervise(t, sig, {
 			rootDir,
 			emit,
-			runBody: (s2) =>
-				runBody(t, s2, emit, gates.get(t.name), passthrough, color),
+			runBody: (s2) => runBody(t, bodyOptions(t, s2, onWaited)),
 			rebuild: (s2) => rebuildDeps(t, s2),
 		});
 	};
@@ -259,6 +295,8 @@ export async function run(
 	const executeBody = async (t: Task, stamp: string | null): Promise<void> => {
 		const release = t.persistent ? () => {} : await semaphore.acquire();
 		const began = performance.now();
+		// Time spent queued behind another process is not time this task took.
+		let waited = 0;
 		emit({
 			type: "task-start",
 			ts: nowIso(),
@@ -266,11 +304,14 @@ export async function run(
 			persistent: t.persistent,
 		});
 		try {
-			const code = await runSupervised(t, controller.signal);
+			const code = await runSupervised(t, controller.signal, (ms) => {
+				waited += ms;
+			});
 			const outcome = codeOutcome(
 				code,
 				controller.signal.aborted,
-				performance.now() - began,
+				performance.now() - began - waited,
+				waited,
 			);
 			// Only a clean success is worth remembering.
 			if (outcome.kind === "ok" && stamp) {
@@ -280,7 +321,7 @@ export async function run(
 			// A dev session ends when its first long-lived process does.
 			if (t.persistent && exitBehavior === "first-exits") controller.abort();
 		} catch (err) {
-			const ms = performance.now() - began;
+			const ms = performance.now() - began - waited;
 			settle(t.name, errorOutcome(err, controller.signal.aborted, ms), false);
 		} finally {
 			release();
@@ -338,22 +379,41 @@ export async function run(
 	return { outcomes, ok, ms };
 }
 
-function buildContext(
-	t: Task,
-	signal: AbortSignal,
-	emit: (event: EngineEvent) => void,
-	color = false,
-): RunContext {
+interface BodyOptions {
+	signal: AbortSignal;
+	emit: (event: EngineEvent) => void;
+	/** Base for a task's relative `cwd`, and the directory it runs in by default. */
+	rootDir: string;
+	gate?: Deferred<boolean>;
+	passthrough?: string[];
+	color?: boolean;
+	/** Reports time the body spent queued for a lock rather than working. */
+	onWaited?: (ms: number) => void;
+}
+
+/** A task runs at the project root unless it names a directory beneath it. */
+function taskCwd(t: Task, rootDir: string): string {
+	return resolve(rootDir, t.cwd ?? ".");
+}
+
+function buildContext(t: Task, opts: BodyOptions): RunContext {
+	const { signal, emit, rootDir, color = false } = opts;
+	const cwd = taskCwd(t, rootDir);
+	const where = (o?: InvokeOptions) => ({
+		cwd: o?.cwd ? resolve(cwd, o.cwd) : cwd,
+		env: o?.env ? { ...t.env, ...o.env } : t.env,
+	});
 	return {
 		signal,
+		cwd,
+		args: t.passthrough ? (opts.passthrough ?? []) : [],
 		log: (message) =>
 			emit({ type: "task-log", ts: nowIso(), task: t.name, message }),
-		capture: (argv) => captureCommand(argv, { cwd: t.cwd, env: t.env, signal }),
-		run: async (argv) => {
+		capture: (argv, o) => captureCommand(argv, { ...where(o), signal }),
+		run: async (argv, o) => {
 			const { argv: resolved } = resolveArgv(argv);
 			await using proc = new Spawned(resolved, {
-				cwd: t.cwd,
-				env: t.env,
+				...where(o),
 				signal,
 				color,
 				onLine: (stream, line) =>
@@ -441,26 +501,51 @@ async function runFunctionBody(
 	}
 }
 
-async function runBody(
-	t: Task,
+/** Take a task's lock, reporting a wait only when there actually was one. */
+async function takeLock(
+	lock: true | string,
+	name: string,
+	ctx: RunContext,
+	rootDir: string,
 	signal: AbortSignal,
-	emit: (event: EngineEvent) => void,
-	gate: Deferred<boolean> | undefined,
-	passthrough: string[] = [],
-	color = false,
-): Promise<number> {
-	const ctx = buildContext(t, signal, emit, color);
+	onWaited: (ms: number) => void,
+): Promise<Disposable> {
+	const held = await acquireLock(lockPath(rootDir, lock), {
+		signal,
+		task: name,
+		onWait: (holder) => ctx.log(`waiting for the lock held by ${holder}`),
+	});
+	onWaited(held.waitedMs);
+	return held;
+}
+
+async function runBody(t: Task, opts: BodyOptions): Promise<number> {
+	const { signal, emit, rootDir, gate, passthrough = [], color = false } = opts;
+	const ctx = buildContext(t, opts);
 	const began = performance.now();
+
+	// Held for the whole body, a function one included, and released by scope exit.
+	using _lock = t.lock
+		? await takeLock(
+				t.lock,
+				t.name,
+				ctx,
+				rootDir,
+				signal,
+				opts.onWaited ?? noop,
+			)
+		: undefined;
 
 	// A persistent task releases dependents on readiness, not on exit.
 	if (t.persistent) armReadiness(t, ctx, emit, gate, began);
 
-	if (typeof t.body === "function") return runFunctionBody(t.body, ctx);
+	// Awaited, not returned: the lock disposes at scope exit, which a bare return reaches first.
+	if (typeof t.body === "function") return await runFunctionBody(t.body, ctx);
 
 	const { argv } = resolveArgv(t.body);
-	const full = t.passthrough ? [...argv, ...passthrough] : argv;
-	await using proc = new Spawned(full, {
-		cwd: t.cwd,
+	const withArgs = t.passthrough ? [...argv, ...passthrough] : argv;
+	await using proc = new Spawned(withArgs, {
+		cwd: taskCwd(t, rootDir),
 		env: t.env,
 		signal,
 		color,

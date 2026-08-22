@@ -3,7 +3,7 @@ import pkg from "../package.json" with { type: "json" };
 import { loadConfig } from "./config.ts";
 import { Graph } from "./engine/graph.ts";
 import { planLayers, run } from "./engine/schedule.ts";
-import type { EventSink, Task } from "./engine/types.ts";
+import type { EventSink } from "./engine/types.ts";
 import { GraphError } from "./engine/types.ts";
 import { TempoAbortError, TempoConfigError } from "./errors.ts";
 import { initRegistration } from "./register.ts";
@@ -74,25 +74,31 @@ function extractGlobals(argv: string[]): {
 	return { globals, rest, passthrough };
 }
 
-/** Positional targets narrow a selection by task name or tag. */
+/**
+ * Narrow a selection by task name, tag, or namespace prefix.
+ *
+ * Dependencies are pulled back in afterwards: narrowing chooses what to run, and
+ * running a task without what it needs would be a different thing entirely.
+ */
 function narrow(
-	tasks: Map<string, Task>,
+	graph: Graph,
 	runSet: Set<string>,
 	targets: string[],
-) {
+): Set<string> {
 	if (targets.length === 0) return runSet;
 	const wanted = new Set(targets);
-	return new Set(
-		[...runSet].filter((name) => {
-			const t = tasks.get(name);
-			if (!t) return false;
-			return (
-				wanted.has(name) ||
-				t.tags.some((tag) => wanted.has(tag)) ||
-				targets.some((target) => name.startsWith(`${target}:`))
-			);
-		}),
-	);
+	const kept = [...runSet].filter((name) => {
+		const t = graph.tasks.get(name);
+		if (!t) return false;
+		return (
+			t.always === true ||
+			wanted.has(name) ||
+			t.tags.some((tag) => wanted.has(tag)) ||
+			targets.some((target) => name.startsWith(`${target}:`))
+		);
+	});
+	const keptSet = new Set(kept);
+	return graph.select((t) => keptSet.has(t.name));
 }
 
 function selectFor(graph: Graph, spec: CommandSpec): Set<string> {
@@ -177,6 +183,27 @@ async function execute(
 	}
 }
 
+/** Run one config command: its tags and tasks, narrowed by any positional targets. */
+function runSelector(
+	config: ResolvedConfig,
+	graph: Graph,
+	spec: CommandSpec,
+	targets: string[],
+	globals: GlobalFlags,
+	passthrough: string[],
+): Promise<number> {
+	const selected = selectFor(graph, spec);
+	const runSet = spec.passthrough ? selected : narrow(graph, selected, targets);
+	return execute(
+		config,
+		graph,
+		runSet,
+		{ ...globals, concurrency: globals.concurrency ?? spec.concurrency },
+		spec,
+		spec.passthrough ? [...targets, ...passthrough] : passthrough,
+	);
+}
+
 export async function main(
 	argv: string[] = process.argv.slice(2),
 ): Promise<number> {
@@ -251,22 +278,26 @@ export async function main(
 		);
 	}
 	if (name && specs[name]) {
-		const spec = specs[name];
 		const targets =
 			(parsed._ as unknown as { targets?: string[] }).targets ?? [];
-		const runSet = narrow(
-			graph.tasks as Map<string, Task>,
-			selectFor(graph, spec),
-			targets,
-		);
-		return execute(
+		return runSelector(
 			config,
 			graph,
-			runSet,
-			{ ...globals, concurrency: globals.concurrency ?? spec.concurrency },
-			spec,
+			specs[name],
+			targets,
+			globals,
 			passthrough,
 		);
+	}
+
+	// Naming a command this project does not define is the usual way an old hook fails.
+	const attempted = (parsed._ as string[])[0];
+	if (attempted) {
+		const known = [...Object.keys(specs), "list", "run"].sort().join(", ");
+		process.stderr.write(
+			`${c.red("error")} no command "${attempted}"; this project defines ${known}\n`,
+		);
+		return 1;
 	}
 
 	parsed.showHelp();

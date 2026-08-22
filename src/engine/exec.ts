@@ -1,6 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { accessSync, constants, existsSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import type { Captured, Requirement } from "./types.ts";
 
 const SIGKILL_AFTER_MS = 3_000;
@@ -62,10 +62,13 @@ export function hasTool(name: string): boolean {
 	return false;
 }
 
-export function missingRequirements(reqs: Requirement[]): Requirement[] {
+export function missingRequirements(
+	reqs: Requirement[],
+	rootDir = process.cwd(),
+): Requirement[] {
 	return reqs.filter((r) => {
 		if (r.env) return !process.env[r.env]?.trim();
-		if (r.file) return !existsSync(r.file);
+		if (r.file) return !existsSync(resolve(rootDir, r.file));
 		if (r.tool) return !hasTool(r.tool);
 		return false;
 	});

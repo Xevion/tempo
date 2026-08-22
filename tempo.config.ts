@@ -67,6 +67,11 @@ export default defineConfig({
 			tags: ["check"],
 		}),
 		task({
+			name: "test:isolation",
+			body: "bun test tests/isolation.test.ts",
+			tags: ["check"],
+		}),
+		task({
 			name: "test:smoke",
 			body: "bun test tests/smoke.test.ts",
 			tags: ["check"],
@@ -105,6 +110,19 @@ export default defineConfig({
 			],
 			tags: ["check"],
 			requires: [{ tool: "deno" }],
+		}),
+
+		task({
+			name: "test:compat-packaged",
+			body: [
+				"bun",
+				"test",
+				"tests/compat.test.ts",
+				"--test-name-pattern",
+				"cli entrypoint",
+			],
+			tags: ["check"],
+			requires: [{ tool: "npm" }],
 		}),
 
 		task({

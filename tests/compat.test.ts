@@ -238,11 +238,22 @@ export default defineConfig({
 });
 `;
 
-/** Imports the package with no node_modules present, forcing virtual module resolution. */
+/** Imports every subpath with no node_modules present, forcing virtual module resolution. */
 const VIRTUAL_PROBE_CONFIG = `import { defineConfig, task } from "@xevion/tempo";
+import { Graph } from "@xevion/tempo/engine";
+import { elapsed } from "@xevion/tempo/fmt";
 
 export default defineConfig({
-	tasks: [task({ name: "probe", body: "true", tags: ["check"] })],
+	tasks: [
+		task({
+			name: "probe",
+			tags: ["check"],
+			body: () => {
+				process.stdout.write("SUBPATHS:" + typeof Graph + "/" + typeof elapsed + "\\n");
+				return 0;
+			},
+		}),
+	],
 	commands: { check: { tags: ["check"] } },
 });
 `;
@@ -384,30 +395,56 @@ describe("cli entrypoint: packaged", () => {
 		PACK_TIMEOUT_MS,
 	);
 
-	test.skipIf(!hasNpm)(
-		"a config with no node_modules resolves under node without deprecation warnings",
-		() => {
-			// The virtual module path only runs when the package cannot be resolved normally.
-			packagedInstall();
-			const dir = mkdtempSync(join(tmpdir(), "tempo-virtual-"));
-			writeFileSync(join(dir, "tempo.config.ts"), VIRTUAL_PROBE_CONFIG);
-			const result = spawnSync(
-				"node",
-				[join(REPO_ROOT, "dist", "cli.mjs"), "check"],
-				{
+	// A globally installed tempo: the package lives outside the project it runs in,
+	// so every specifier a config names has to come from the virtual module map.
+	for (const runtime of ["node", "bun"] as const) {
+		test.skipIf(!hasNpm)(
+			`${runtime} resolves every subpath for a project with no node_modules`,
+			() => {
+				const install = packagedInstall();
+				const cli = join(
+					install.dir,
+					"node_modules",
+					pkg.name,
+					"dist",
+					"cli.mjs",
+				);
+				const dir = mkdtempSync(join(tmpdir(), "tempo-virtual-"));
+				writeFileSync(join(dir, "tempo.config.ts"), VIRTUAL_PROBE_CONFIG);
+				const result = spawnSync(runtime, [cli, "check"], {
 					cwd: dir,
 					stdio: ["ignore", "pipe", "pipe"],
 					env: { ...process.env, NO_COLOR: "1", TEMPO_REEXEC: "1" },
-				},
-			);
+				});
+				const stdout = result.stdout?.toString() ?? "";
+				const stderr = result.stderr?.toString() ?? "";
+				rmSync(dir, { recursive: true, force: true });
+				if (result.status !== 0) {
+					throw new Error(
+						`virtual-module run failed (${result.status}): ${stdout}${stderr}`,
+					);
+				}
+				expect(stdout).toContain("SUBPATHS:function/function");
+				expect(stderr).not.toContain("DeprecationWarning");
+			},
+			PACK_TIMEOUT_MS,
+		);
+	}
+
+	test.skipIf(!hasNpm)(
+		"an unknown command names itself and the ones that do exist",
+		() => {
+			// A hook left over from an older tempo has to say what happened to it.
+			const { dir, bin } = packagedInstall();
+			const result = spawnSync(bin, ["pre-commit"], {
+				cwd: dir,
+				stdio: ["ignore", "pipe", "pipe"],
+				env: { ...process.env, NO_COLOR: "1", TEMPO_REEXEC: "1" },
+			});
 			const stderr = result.stderr?.toString() ?? "";
-			rmSync(dir, { recursive: true, force: true });
-			if (result.status !== 0) {
-				throw new Error(
-					`virtual-module run failed (${result.status}): ${result.stdout?.toString()}${stderr}`,
-				);
-			}
-			expect(stderr).not.toContain("DeprecationWarning");
+			expect(result.status).toBe(1);
+			expect(stderr).toContain('no command "pre-commit"');
+			expect(stderr).toContain("probe");
 		},
 		PACK_TIMEOUT_MS,
 	);

@@ -14,6 +14,13 @@ export interface CommandSpec {
 	requirementPolicy?: RequirementPolicy;
 	/** first-exits ends the run when the first persistent task exits. */
 	exitBehavior?: "first-exits" | "all-exit";
+	/**
+	 * Treat positional arguments as arguments rather than as selectors.
+	 *
+	 * For a command whose own arguments are the point (`tempo db reset`) rather
+	 * than one selecting a subset of a matrix (`tempo check backend`).
+	 */
+	passthrough?: boolean;
 }
 
 export interface TempoConfig {
