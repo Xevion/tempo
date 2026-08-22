@@ -9,5 +9,11 @@
 		"types": ["node"]
 	},
 	"include": ["src/**/*.ts"],
-	"exclude": ["node_modules", "src/cli.ts", "src/register.ts"]
+	"exclude": [
+		"node_modules",
+		"src/cli.ts",
+		"src/cli.standalone.ts",
+		"src/register.ts",
+		"src/register.standalone.ts"
+	]
 }

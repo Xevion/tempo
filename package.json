@@ -17,9 +17,10 @@
 		"typecheck": "tsc --noEmit",
 		"lint": "biome check --error-on-warnings .",
 		"build:js": "bun build src/index.ts src/engine/index.ts src/fmt.ts --outdir dist --root src --target node --format esm --packages external --splitting --entry-naming '[dir]/[name].mjs' --chunk-naming '[name]-[hash].mjs'",
-		"build:cli": "bun build src/cli.ts --outfile dist/cli.mjs --target node --format esm --packages external --banner '#!/usr/bin/env sh\n\":\" //# ; exec \"$(command -v node || command -v bun)\" \"$0\" \"$@\"'",
-		"build:types": "tsc -p tsconfig.build.json && bun scripts/rewrite-dts.mjs",
+		"build:cli": "bun build src/cli.ts --outfile dist/cli.mjs --target node --format esm --packages external --external bun --banner '#!/usr/bin/env sh\n\":\" //# ; exec \"$(command -v node || command -v bun)\" \"$0\" \"$@\"'",
+		"build:types": "tsc -p tsconfig.build.json && bun scripts/rewrite-dts.ts",
 		"build": "bun run clean && bun run build:js && bun run build:cli && bun run build:types",
+		"build:compile": "bun run build && bun scripts/build-compiled.ts",
 		"prepublishOnly": "bun run build",
 		"test:install": "bun run build && TARBALL=$(npm pack --pack-destination /tmp) && npm install -g \"/tmp/$TARBALL\""
 	},
@@ -60,7 +61,7 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.8",
-		"@types/bun": "^1.2.0",
+		"@types/bun": "^1.4.0",
 		"@types/node": ">=22",
 		"knip": "^6.1.0",
 		"typescript": "7.0.2"

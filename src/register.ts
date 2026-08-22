@@ -24,9 +24,30 @@ function exportTargets(packageRoot: string, isBun: boolean): ExportConditions {
 	return targets;
 }
 
-/** Register virtual modules so configs can import "@xevion/tempo" with no node_modules. */
+/**
+ * True inside a `bun build --compile` binary, where `import.meta.url` is either a
+ * non-addressable shared `$bunfs` path or a stale compile-machine path, so the
+ * package-root math below cannot produce a usable virtual-module mapping.
+ *
+ * `isStandaloneExecutable` on the global Bun object postdates `@types/bun`, hence the cast.
+ */
+export function isStandaloneExecutable(): boolean {
+	const bunGlobal = (
+		globalThis as { Bun?: { isStandaloneExecutable?: boolean } }
+	).Bun;
+	return bunGlobal?.isStandaloneExecutable === true;
+}
+
+/**
+ * Register virtual modules so configs can import "@xevion/tempo" with no node_modules.
+ *
+ * Inside a compiled binary, `register.standalone.ts` has already done this before
+ * `main()` runs, using embedded bundle text rather than the path math below.
+ */
 export async function initRegistration(): Promise<void> {
+	if (isStandaloneExecutable()) return;
 	const isBun = "Bun" in globalThis;
+
 	// This module ships in both src/ and dist/, so its parent is the package root either way.
 	const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 	const subpathExports = exportTargets(packageRoot, isBun);

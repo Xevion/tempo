@@ -304,7 +304,8 @@ export async function main(
 	return 1;
 }
 
-if (import.meta.main) {
+/** Run main() and translate its known errors into a clean stderr message and exit code. */
+export function runMain(): void {
 	main()
 		.then((code) => process.exit(code))
 		.catch((err: unknown) => {
@@ -318,4 +319,8 @@ if (import.meta.main) {
 			}
 			throw err;
 		});
+}
+
+if (import.meta.main) {
+	runMain();
 }

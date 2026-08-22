@@ -85,6 +85,13 @@ export default defineConfig({
 			tags: ["check"],
 		}),
 		task({
+			name: "test:compiled",
+			body: "bun test tests/compiled.test.ts",
+			tags: ["check"],
+			// It runs `bun run build:compile`, which rebuilds dist, so it must not overlap a dist reader.
+			lock: DIST_LOCK,
+		}),
+		task({
 			name: "test:compat-bun",
 			body: [
 				"bun",

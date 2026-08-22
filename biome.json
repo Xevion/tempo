@@ -10,6 +10,7 @@
 		"includes": [
 			"src/**",
 			"tests/**",
+			"scripts/**",
 			"tempo.config.ts",
 			"biome.json",
 			"tsconfig.json"

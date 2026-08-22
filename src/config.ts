@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { TempoConfigError } from "./errors.ts";
+import { isStandaloneExecutable } from "./register.ts";
 import type { ResolvedConfig, TempoConfig } from "./types.ts";
 
 const CONFIG_FILENAME = "tempo.config.ts";
@@ -21,6 +22,18 @@ function isBunConfigError(error: unknown): boolean {
 		msg.includes("ERR_MODULE_NOT_FOUND") ||
 		/from ['"]bun['"]/.test(msg)
 	);
+}
+
+const MISSING_SPECIFIER = /Cannot find (?:module|package) ['"]([^'"]+)['"]/;
+
+/**
+ * A compiled binary embeds @xevion/tempo itself but has no node_modules of its
+ * own, so a config's import of anything else fails to resolve at all.
+ */
+function standaloneUnresolvedImport(error: unknown): string | null {
+	if (!isStandaloneExecutable()) return null;
+	const msg = error instanceof Error ? error.message : String(error);
+	return MISSING_SPECIFIER.exec(msg)?.[1] ?? null;
 }
 
 /** Walk up from cwd looking for a config file. */
@@ -60,6 +73,14 @@ async function importConfig(configPath: string): Promise<TempoConfig> {
 		if (!("Bun" in globalThis) && isBunConfigError(error)) {
 			throw new TempoConfigError(
 				`this config uses bun-specific imports but tempo is running under node; add a bun.lock or run it with bun`,
+			);
+		}
+		const unresolved = standaloneUnresolvedImport(error);
+		if (unresolved) {
+			throw new TempoConfigError(
+				`this config imports "${unresolved}", which the compiled tempo binary cannot resolve; ` +
+					`it bundles @xevion/tempo (and node:* builtins) but has no node_modules of its own. ` +
+					`Install tempo from npm and run it with bun, node, or deno instead.`,
 			);
 		}
 		const message = error instanceof Error ? error.message : String(error);

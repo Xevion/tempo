@@ -1,7 +1,8 @@
 {
 	"$schema": "https://unpkg.com/knip@6/schema.json",
 	"entry": [
-		"src/cli.ts"
+		"src/cli.ts",
+		"src/cli.standalone.ts"
 	],
 	"project": [
 		"src/**/*.ts"

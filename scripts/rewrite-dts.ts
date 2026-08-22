@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import { existsSync, globSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
@@ -6,7 +6,7 @@ import { dirname, resolve } from "node:path";
 // output, neither of which node16 consumers can resolve.
 const RELATIVE = /(from\s*|import\s*\(\s*)(["'])(\.{1,2}\/[^"']*)\2/g;
 
-function rewriteSpecifier(dir, specifier) {
+function rewriteSpecifier(dir: string, specifier: string): string {
 	if (specifier.endsWith(".ts")) return `${specifier.slice(0, -3)}.js`;
 	if (/\.[cm]?jsx?$|\.json$/.test(specifier)) return specifier;
 	if (existsSync(resolve(dir, `${specifier}.d.ts`))) return `${specifier}.js`;
