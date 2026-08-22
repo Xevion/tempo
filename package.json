@@ -42,28 +42,6 @@
 	},
 	"main": "./dist/index.mjs",
 	"types": "./dist/index.d.ts",
-	"typesVersions": {
-		"*": {
-			"proc": [
-				"./dist/proc.d.ts"
-			],
-			"fmt": [
-				"./dist/fmt.d.ts"
-			],
-			"preflight": [
-				"./dist/preflight.d.ts"
-			],
-			"targets": [
-				"./dist/targets.d.ts"
-			],
-			"watch": [
-				"./dist/watch.d.ts"
-			],
-			"octocov": [
-				"./dist/octocov.d.ts"
-			]
-		}
-	},
 	"files": [
 		"src/",
 		"dist/"
