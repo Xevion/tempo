@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.2.0](https://github.com/Xevion/tempo/compare/v0.1.7...v0.2.0) (2026-08-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* configs declare tasks and commands; subsystems, runners, and the proc/preflight/targets/watch/octocov subpaths are removed.
+
+### Features
+
+* cache tasks on input content hashes ([07491f6](https://github.com/Xevion/tempo/commit/07491f65aee5213281def7d3bdb9882b74c3fdd3))
+* isolate tasks at the project root and lock them without flock ([d2b40ff](https://github.com/Xevion/tempo/commit/d2b40ffccfc65a826a6b1b77c31f885e1217893d))
+* rebuild around a task graph engine ([51412fd](https://github.com/Xevion/tempo/commit/51412fd088b9a4efcee0e63897c731de81915687))
+* supervise watched processes for dev sessions ([2116f25](https://github.com/Xevion/tempo/commit/2116f2509be5cf3f7832111fdd15a2ea0182b899))
+
+
+### Bug Fixes
+
+* never leave a lock file that no one can recover ([485824e](https://github.com/Xevion/tempo/commit/485824ea7d92595e62e76cd26cdb76d9d868358e))
+* stop the packaged compat test racing the dist readers ([a4279d0](https://github.com/Xevion/tempo/commit/a4279d07fc7b7044e0e5c9c88a7e0009f8b7dafc))
+
+
+### Documentation
+
+* rewrite the README for the task model ([b8e031b](https://github.com/Xevion/tempo/commit/b8e031bb6f2d5b6a0a7e4cab310bd86c04974c13))
+* rewrite the tempo-config skill for the task model ([a3f2f6f](https://github.com/Xevion/tempo/commit/a3f2f6f3e0c8b4de459aa15487416574c0aeea8d))
+
+
+### Miscellaneous
+
+* drop typesVersions for modules that no longer exist ([fb1dee2](https://github.com/Xevion/tempo/commit/fb1dee289155a818a964013d96c0a44a53d0f66a))
+
+
+### Continuous Integration
+
+* prove the Node 22 floor against the packaged artifact ([88e10ba](https://github.com/Xevion/tempo/commit/88e10ba6cc8d09d3c7d84e64c432354e7ca63b22))
+
 ## [0.1.7](https://github.com/Xevion/tempo/compare/v0.1.6...v0.1.7) (2026-08-21)
 
 
