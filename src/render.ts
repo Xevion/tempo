@@ -1,4 +1,5 @@
 import type { EngineEvent, EventSink, Outcome } from "./engine/types.ts";
+import { CLEAR_LINE, isStderrTTY } from "./fmt.ts";
 import { c } from "./utils/theme.ts";
 
 /** Raw record stream, one JSON object per line. */
@@ -109,6 +110,48 @@ interface TtyState {
 	/** A run of exactly one task, which needs neither buffering nor a prefix. */
 	solo: boolean;
 	write: (line: string) => void;
+	/** In the run but not yet dispatched: still queued behind deps, a lock, or concurrency. */
+	waiting: Set<string>;
+	/** Dispatched, one-shot, and running silently until it settles. */
+	running: Set<string>;
+	startedAt: number;
+	/** Whether the last thing written to stderr was an unterminated spinner line. */
+	spinnerOn: boolean;
+}
+
+const SPINNER_FRAME_MS = 100;
+
+type SpinnerHandle = { timer?: ReturnType<typeof setInterval> };
+
+function startSpinner(state: TtyState, handle: SpinnerHandle): void {
+	if (!isStderrTTY || state.solo) return;
+	handle.timer = setInterval(() => drawSpinner(state), SPINNER_FRAME_MS);
+}
+
+function stopSpinner(state: TtyState, handle: SpinnerHandle): void {
+	if (handle.timer) clearInterval(handle.timer);
+	if (state.spinnerOn) {
+		process.stderr.write(CLEAR_LINE);
+		state.spinnerOn = false;
+	}
+}
+
+/** Redraw the status line naming what's still waiting or running, or clear it once idle. */
+function drawSpinner(state: TtyState): void {
+	const labels = [...state.running, ...state.waiting];
+	if (labels.length === 0) {
+		if (state.spinnerOn) {
+			process.stderr.write(CLEAR_LINE);
+			state.spinnerOn = false;
+		}
+		return;
+	}
+	const el = seconds(performance.now() - state.startedAt);
+	const cols = process.stderr.columns || 80;
+	let text = `${el} ${labels.join(", ")}`;
+	if (text.length > cols) text = `${text.slice(0, cols - 1)}…`;
+	process.stderr.write(`${CLEAR_LINE}${c.dim(text)}`);
+	state.spinnerOn = true;
 }
 
 function handleOutput(task: string, line: string, state: TtyState): void {
@@ -151,17 +194,34 @@ export function ttySink(): EventSink {
 		live: new Set(),
 		order: new Map(),
 		solo: false,
-		write: (line) => process.stderr.write(`${line}\n`),
+		write: () => {},
+		waiting: new Set(),
+		running: new Set(),
+		startedAt: 0,
+		spinnerOn: false,
 	};
+	state.write = (line) => {
+		if (state.spinnerOn) {
+			process.stderr.write(CLEAR_LINE);
+			state.spinnerOn = false;
+		}
+		process.stderr.write(`${line}\n`);
+	};
+	const spinner: SpinnerHandle = {};
 
 	return (event: EngineEvent) => {
 		switch (event.type) {
 			// Nothing to interleave, so the output is the point rather than noise.
 			case "run-start":
 				state.solo = event.tasks.length === 1;
+				state.startedAt = performance.now();
+				for (const task of event.tasks) state.waiting.add(task);
+				startSpinner(state, spinner);
 				return;
 			case "task-start":
+				state.waiting.delete(event.task);
 				if (event.persistent) state.live.add(event.task);
+				else state.running.add(event.task);
 				return;
 			case "task-output":
 				handleOutput(event.task, event.line, state);
@@ -178,9 +238,12 @@ export function ttySink(): EventSink {
 				state.write(`${c.green("●")} ${event.task} ${c.dim("ready")}`);
 				return;
 			case "task-settled":
+				state.running.delete(event.task);
+				state.waiting.delete(event.task);
 				handleSettled(event.task, event.outcome, state);
 				return;
 			case "run-end":
+				stopSpinner(state, spinner);
 				renderSummary(state.outcomes, event.ok, event.ms, state.write);
 				return;
 			default:
