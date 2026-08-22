@@ -1,10 +1,18 @@
 import { defineConfig, task } from "./src/index.ts";
 
-/** Every packaging check reads dist, so they all order behind one build. */
+/**
+ * The build rewrites dist through `rm -rf`, and every packaging check reads it.
+ *
+ * A lock rather than an edge, because the packaged compat test rebuilds too, and
+ * a second tempo run in another terminal would race this one just as happily.
+ */
+const DIST_LOCK = ".tempo/locks/dist.lock";
+
 const build = task({
 	name: "pkg:build",
 	body: "bun run build",
 	tags: ["build"],
+	lock: DIST_LOCK,
 	inputs: [
 		"src/**/*.ts",
 		"scripts/*.mjs",
@@ -123,6 +131,8 @@ export default defineConfig({
 			],
 			tags: ["check"],
 			requires: [{ tool: "npm" }],
+			// It runs `bun run build`, so it must not overlap a dist reader.
+			lock: DIST_LOCK,
 		}),
 
 		task({
@@ -141,18 +151,21 @@ export default defineConfig({
 		task({ name: "pkg:audit", body: "bun audit", tags: ["check"] }),
 		task({
 			name: "pkg:pack",
+			lock: DIST_LOCK,
 			body: "npm pack --dry-run",
 			tags: ["check"],
 			needs: ["pkg:build"],
 		}),
 		task({
 			name: "pkg:publint",
+			lock: DIST_LOCK,
 			body: "bunx publint --strict",
 			tags: ["check"],
 			needs: ["pkg:build"],
 		}),
 		task({
 			name: "pkg:attw",
+			lock: DIST_LOCK,
 			body: "bunx @arethetypeswrong/cli --pack .",
 			tags: ["check"],
 			needs: ["pkg:build"],
