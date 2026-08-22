@@ -2,7 +2,7 @@
 	"name": "@xevion/tempo",
 	"version": "0.1.7",
 	"type": "module",
-	"description": "Consolidated developer scripts with composable primitives and config-driven runners",
+	"description": "A task graph for a project's checks, formatters, and dev servers",
 	"author": "Xevion",
 	"license": "LGPL-3.0-or-later",
 	"repository": {
