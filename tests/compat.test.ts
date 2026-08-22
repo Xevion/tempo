@@ -94,19 +94,33 @@ describe("cross-runtime: bun", () => {
 });
 
 const hasNode = requireRuntime("node", hasRuntime("node"));
+
+function nodeMajor(): number {
+	const result = spawnSync("node", ["--version"], {
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	const version = result.stdout?.toString().trim() ?? "";
+	return Number.parseInt(version.replace("v", "").split(".")[0] ?? "", 10) || 0;
+}
+
+/**
+ * Raw source uses explicit resource management, which Node cannot parse before 24.
+ *
+ * The published package is unaffected: the bundler lowers `using` into helpers,
+ * so `dist` runs on the declared floor. Only loading `src` directly needs 24.
+ */
+const SOURCE_NODE_MIN = 24;
+const nodeRunsSource = hasNode && nodeMajor() >= SOURCE_NODE_MIN;
+
 describe("cross-runtime: node", () => {
-	test.skipIf(!hasNode)("node is available", () => {
-		const result = spawnSync("node", ["--version"], {
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		const version = result.stdout?.toString().trim() ?? "";
-		// Node 22+ required for --experimental-strip-types
-		const major = Number.parseInt(version.replace("v", "").split(".")[0], 10);
-		expect(major).toBeGreaterThanOrEqual(22);
+	test.skipIf(!hasNode)("node meets the declared engine floor", () => {
+		const floor = Number.parseInt(pkg.engines.node.match(/\d+/)?.[0] ?? "", 10);
+		expect(floor).toBeGreaterThan(0);
+		expect(nodeMajor()).toBeGreaterThanOrEqual(floor);
 	});
 
 	for (const mod of SUBPATH_EXPORTS) {
-		test.skipIf(!hasNode)(`import ${mod}`, () => {
+		test.skipIf(!nodeRunsSource)(`import ${mod}`, () => {
 			const result = nodeImportTest(mod);
 			if (!result.ok) {
 				throw new Error(`Node failed to import ${mod}: ${result.error}`);
@@ -184,7 +198,7 @@ const CLI_RUNTIMES = [
 		name: "node",
 		cmd: "node",
 		args: ["--experimental-strip-types", "src/cli.ts"],
-		available: hasNode,
+		available: nodeRunsSource,
 	},
 	{
 		name: "deno",

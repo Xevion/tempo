@@ -12,13 +12,17 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  checks: write
+  contents: read
 
 jobs:
   ci:
     name: Summary
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Only this job synthesizes check-runs; the matrix below needs no write scope.
+    permissions:
+      contents: read
+      checks: write
     steps:
       - uses: actions/checkout@v7 # zizmor: ignore[unpinned-uses]
         with:
@@ -28,9 +32,11 @@ jobs:
         with:
           bun-version: latest
 
+      # The source tree uses explicit resource management, which Node parses from 24.
+      # The published bundle lowers it, and node-floor below proves that on 22.
       - uses: actions/setup-node@v6 # zizmor: ignore[unpinned-uses]
         with:
-          node-version: "22"
+          node-version: "24"
 
       - uses: denoland/setup-deno@v2 # zizmor: ignore[unpinned-uses]
         with:
@@ -129,3 +135,32 @@ jobs:
             fi
           done
           exit "$failed"
+
+  node-floor:
+    name: Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24", "26"]
+    steps:
+      - uses: actions/checkout@v7 # zizmor: ignore[unpinned-uses]
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2 # zizmor: ignore[unpinned-uses]
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v6 # zizmor: ignore[unpinned-uses]
+        with:
+          node-version: ${{ matrix.node }}
+
+      - run: bun install --frozen-lockfile
+
+      # Installs from a real tarball and runs the shipped bin, so this is the
+      # engines floor as a consumer meets it rather than as the repo runs it.
+      - name: Packaged CLI
+        run: |
+          bun test tests/compat.test.ts --test-name-pattern "cli entrypoint: packaged"

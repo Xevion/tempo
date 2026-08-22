@@ -50,9 +50,10 @@ jobs:
         with:
           bun-version: latest
 
+      # Matches CI: the source tree needs Node 24 to parse, the published bundle does not.
       - uses: actions/setup-node@v6 # zizmor: ignore[unpinned-uses]
         with:
-          node-version: "22"
+          node-version: "24"
 
       - uses: denoland/setup-deno@v2 # zizmor: ignore[unpinned-uses]
         with:
