@@ -15,7 +15,7 @@ const build = task({
 	lock: DIST_LOCK,
 	inputs: [
 		"src/**/*.ts",
-		"scripts/*.mjs",
+		"scripts/*.ts",
 		"package.json",
 		"tsconfig.build.json",
 	],

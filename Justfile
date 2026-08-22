@@ -6,13 +6,13 @@ default: check
 check *args:
     {{ tempo }} check {{ args }}
 
-# Run checks with auto-fix
-fix:
-    {{ tempo }} check --fix
+# Apply every formatter
+format:
+    {{ tempo }} fmt
 
-# Build the CLI binary
+# Build the package
 build:
-    bun run build
+    {{ tempo }} build
 
 # Run tests
 test:
@@ -22,10 +22,6 @@ test:
 test-compat:
     bun test tests/compat.test.ts
 
-# Audit dependencies for known vulnerabilities
-audit:
-    bun audit
-
-# Format code
-format:
-    {{ tempo }} fmt
+# Build the single-file executable into bin/
+compile:
+    bun run build:compile
