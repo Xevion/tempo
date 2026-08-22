@@ -1,10 +1,9 @@
 import {
-	closeSync,
+	linkSync,
 	mkdirSync,
-	openSync,
 	readFileSync,
 	unlinkSync,
-	writeSync,
+	writeFileSync,
 } from "node:fs";
 import { hostname } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -32,15 +31,19 @@ interface Holder {
 const POLL_MIN_MS = 20;
 const POLL_MAX_MS = 250;
 
-/** True when the recorded holder is gone, so its lock is ours to take. */
+/**
+ * True when the recorded holder is gone, so its lock is ours to take.
+ *
+ * A file that will not parse counts as abandoned. A claim links a complete
+ * holder into place, so tempo never leaves a half-written one, and treating an
+ * unreadable file as held would hang every later run forever.
+ */
 function abandoned(file: string): boolean {
 	let holder: Holder;
 	try {
 		holder = JSON.parse(readFileSync(file, "utf8")) as Holder;
-	} catch {
-		// Either the holder vanished between the failed open and this read, in which
-		// case the next attempt wins it, or the file is not ours to interpret.
-		return false;
+	} catch (err) {
+		return (err as NodeJS.ErrnoException).code !== "ENOENT";
 	}
 	// A pid from another machine says nothing about a process on this one.
 	if (holder.host !== hostname() || typeof holder.pid !== "number")
@@ -64,26 +67,36 @@ function release(file: string): void {
 	}
 }
 
-function claim(file: string, task: string): boolean {
-	let fd: number;
+/**
+ * Claim the lock by linking a fully written file into place.
+ *
+ * `link` fails when the name exists, so it is as exclusive as an O_EXCL create
+ * while the content is already complete: a waiter can never read a half-written
+ * holder and mistake it for an unreadable one.
+ */
+function claim(staged: string, file: string): boolean {
 	try {
-		fd = openSync(file, "wx");
+		linkSync(staged, file);
+		return true;
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
 		return false;
 	}
+}
+
+let staging = 0;
+
+/** Write the holder beside the lock, on the same filesystem so it can be linked. */
+function stageHolder(file: string, task: string): string {
+	const path = `${file}.${process.pid}.${staging++}.staged`;
 	const holder: Holder = {
 		pid: process.pid,
 		host: hostname(),
 		task,
 		since: new Date().toISOString(),
 	};
-	try {
-		writeSync(fd, JSON.stringify(holder));
-	} finally {
-		closeSync(fd);
-	}
-	return true;
+	writeFileSync(path, JSON.stringify(holder));
+	return path;
 }
 
 export interface AcquireOptions {
@@ -107,25 +120,31 @@ export async function acquireLock(
 ): Promise<Disposable & { waitedMs: number }> {
 	mkdirSync(dirname(file), { recursive: true });
 	const began = performance.now();
+	const staged = stageHolder(file, opts.task);
 	let announced = false;
 	let delay = POLL_MIN_MS;
 
-	while (!claim(file, opts.task)) {
-		opts.signal?.throwIfAborted();
-		if (abandoned(file)) {
-			try {
-				unlinkSync(file);
-			} catch {
-				// Someone else cleaned up first, which is equally good.
+	try {
+		while (!claim(staged, file)) {
+			opts.signal?.throwIfAborted();
+			if (abandoned(file)) {
+				try {
+					unlinkSync(file);
+				} catch {
+					// Someone else cleaned up first, which is equally good.
+				}
+				continue;
 			}
-			continue;
+			if (!announced) {
+				announced = true;
+				opts.onWait?.(holderName(file));
+			}
+			await sleep(delay, opts.signal);
+			delay = Math.min(delay * 2, POLL_MAX_MS);
 		}
-		if (!announced) {
-			announced = true;
-			opts.onWait?.(holderName(file));
-		}
-		await sleep(delay, opts.signal);
-		delay = Math.min(delay * 2, POLL_MAX_MS);
+	} finally {
+		// The lock holds the content under its own name now, linked or not.
+		unlinkSync(staged);
 	}
 
 	const cleanup = () => release(file);

@@ -249,6 +249,21 @@ describe("locking", () => {
 		expect(performance.now() - began).toBeLessThan(5_000);
 	}, 30_000);
 
+	test("an unreadable lock file is taken, not waited on forever", async () => {
+		// A truncated lock has no pid to check, so treating it as held would hang.
+		const file = join(dir, ".tempo", "locks", "project.lock");
+		mkdirSync(dirname(file), { recursive: true });
+		writeFileSync(file, "");
+		const graph = new Graph([locked("only")]);
+		const began = performance.now();
+		const { ok } = await run(graph, graph.selectByTag("x"), {
+			rootDir: dir,
+			requirementPolicy: "warn",
+		});
+		expect(ok).toBe(true);
+		expect(performance.now() - began).toBeLessThan(5_000);
+	}, 30_000);
+
 	test("a lock held by a live process is waited on", async () => {
 		const file = join(dir, ".tempo", "locks", "project.lock");
 		mkdirSync(dirname(file), { recursive: true });
@@ -276,6 +291,28 @@ describe("locking", () => {
 			.filter((e) => e.type === "task-log")
 			.map((e) => (e as { message: string }).message);
 		expect(logs.some((m) => m.includes("live"))).toBe(true);
+	}, 30_000);
+
+	test("a waiter names the task holding the lock, not the lock file", async () => {
+		// The holder is written before the lock file has its name, so it is never
+		// read half-written and mistaken for an unreadable one.
+		const names = ["one", "two", "three"];
+		const graph = new Graph(names.map((n) => locked(n)));
+		const events: EngineEvent[] = [];
+		await run(graph, graph.selectByTag("x"), {
+			rootDir: dir,
+			requirementPolicy: "warn",
+			concurrency: 3,
+			onEvent: (e) => events.push(e),
+		});
+		const waits = events
+			.filter((e) => e.type === "task-log")
+			.map((e) => (e as { message: string }).message)
+			.filter((m) => m.includes("waiting for the lock"));
+		expect(waits.length).toBeGreaterThan(0);
+		for (const message of waits) {
+			expect(names.some((n) => message.endsWith(`by ${n}`))).toBe(true);
+		}
 	}, 30_000);
 
 	test("a lock wait is reported beside the work, not added to it", async () => {
