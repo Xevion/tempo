@@ -42,7 +42,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6 # zizmor: ignore[unpinned-uses]
+      - uses: actions/checkout@v7 # zizmor: ignore[unpinned-uses]
         with:
           persist-credentials: false
           fetch-depth: 0 # the baseline is scanned from a worktree
@@ -52,7 +52,7 @@ jobs:
           bun-version: latest
 
       # Matches CI: the source tree needs Node 24 to parse, the published bundle does not.
-      - uses: actions/setup-node@v6 # zizmor: ignore[unpinned-uses]
+      - uses: actions/setup-node@v7 # zizmor: ignore[unpinned-uses]
         with:
           node-version: "24"
 
@@ -103,7 +103,7 @@ jobs:
         with:
           bun-version: latest
 
-      - uses: actions/setup-node@v6 # zizmor: ignore[unpinned-uses]
+      - uses: actions/setup-node@v7 # zizmor: ignore[unpinned-uses]
         with:
           node-version: lts/*
           registry-url: https://registry.npmjs.org
