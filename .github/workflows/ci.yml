@@ -27,6 +27,7 @@ jobs:
       - uses: actions/checkout@v7 # zizmor: ignore[unpinned-uses]
         with:
           persist-credentials: false
+          fetch-depth: 0 # the baseline is scanned from a worktree
 
       - uses: oven-sh/setup-bun@v2 # zizmor: ignore[unpinned-uses]
         with:
@@ -70,7 +71,7 @@ jobs:
 
       - name: Audit
         id: audit
-        run: bun audit
+        uses: Xevion/advisory-action@v1
         continue-on-error: true
 
       - name: Pack Dry Run
