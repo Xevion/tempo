@@ -1,6 +1,6 @@
 {
 	"name": "@xevion/tempo",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"type": "module",
 	"description": "A task graph for a project's checks, formatters, and dev servers",
 	"author": "Xevion",
