@@ -4,7 +4,6 @@ export {
 	globToRegExp,
 	isCacheable,
 	isFresh,
-	outputsPresent,
 } from "./cache.ts";
 export {
 	captureCommand,

@@ -63,7 +63,7 @@
 		"@biomejs/biome": "^2.4.8",
 		"@types/bun": "^1.4.0",
 		"@types/node": ">=22",
-		"knip": "^6.1.0",
+		"knip": "^6.38.0",
 		"typescript": "7.0.2"
 	},
 	"peerDependencies": {

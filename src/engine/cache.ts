@@ -89,16 +89,6 @@ export function globFiles(root: string, patterns: string[]): string[] {
 	return all.filter((p) => matchers.some((m) => m.test(p))).sort();
 }
 
-/** True when every declared output pattern matches at least one file. */
-export function outputsPresent(root: string, patterns: string[]): boolean {
-	if (patterns.length === 0) return true;
-	const all: string[] = [];
-	walk(root, root, all);
-	return patterns
-		.map(globToRegExp)
-		.every((m) => all.some((file) => m.test(file)));
-}
-
 /**
  * A digest of each declared output's size and mtime, or null when some
  * pattern matches nothing at all.

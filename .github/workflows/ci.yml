@@ -71,7 +71,7 @@ jobs:
 
       - name: Audit
         id: audit
-        uses: Xevion/advisory-action@v1
+        uses: Xevion/advisory-action@v1 # zizmor: ignore[unpinned-uses]
         continue-on-error: true
 
       - name: Pack Dry Run

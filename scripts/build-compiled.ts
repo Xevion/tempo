@@ -23,7 +23,7 @@ mkdirSync("bin", { recursive: true });
 // A bundle with every dependency inlined, distinct from dist/'s externalized build:
 // the compiled binary has no node_modules for an embedded module to `require()` from.
 const embed = spawnSync(
-	"bun",
+	process.execPath, // the bun that passed the version check
 	[
 		"build",
 		"src/index.ts",
@@ -45,7 +45,7 @@ const embed = spawnSync(
 if (embed.status !== 0) process.exit(embed.status ?? 1);
 
 const result = spawnSync(
-	"bun",
+	process.execPath,
 	[
 		"build",
 		"--compile",
