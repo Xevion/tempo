@@ -107,8 +107,10 @@ const WEB_DEPS = { file: "web/node_modules", hint: "run `bun install` inside web
 ## Caching replaces preflights
 
 There is no preflight system. A generator is an ordinary task that declares what it reads and
-writes, and the engine skips it while its inputs are unchanged. Fingerprints are content
-hashes, not timestamps.
+writes, and the engine skips it while its inputs are unchanged. Inputs are fingerprinted by
+content, not timestamps. Outputs are checked by size and mtime, so a hand edit to a generated
+file reruns its task; the flip side is that two tasks writing one file keep invalidating each
+other, so give every output a single owner.
 
 ```ts
 task({

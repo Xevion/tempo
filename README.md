@@ -85,9 +85,10 @@ task({
 });
 ```
 
-Fingerprints are content hashes, not timestamps, and live in `.tempo/` — which ignores itself,
-so nothing reaches your diff. A cache hit satisfies dependents: anything that `needs` this task
-proceeds immediately.
+Inputs are fingerprinted by content, not timestamps. Outputs are checked by size and mtime, so a
+hand edit to a generated file reruns its task. Fingerprints live in `.tempo/`, which ignores
+itself, so nothing reaches your diff. A cache hit satisfies dependents: anything that `needs`
+this task proceeds immediately.
 
 ## Dev sessions
 

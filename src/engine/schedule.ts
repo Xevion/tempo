@@ -244,7 +244,7 @@ export async function run(
 			color,
 		});
 		const outcome = codeOutcome(code, sig.aborted, performance.now() - began);
-		if (outcome.kind === "ok" && stamp) writeFingerprint(rootDir, dep, stamp);
+		if (outcome.kind === "ok" && stamp) writeFingerprint(rootDir, d, stamp);
 		emit({ type: "task-settled", ts: nowIso(), task: dep, outcome });
 		return outcome.kind === "ok";
 	};
@@ -315,7 +315,7 @@ export async function run(
 			);
 			// Only a clean success is worth remembering.
 			if (outcome.kind === "ok" && stamp) {
-				writeFingerprint(rootDir, t.name, stamp);
+				writeFingerprint(rootDir, t, stamp);
 			}
 			settle(t.name, outcome, outcome.kind === "ok");
 			// A dev session ends when its first long-lived process does.

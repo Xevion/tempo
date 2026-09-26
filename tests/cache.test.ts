@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	utimesSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { globFiles, globToRegExp } from "../src/engine/cache.ts";
@@ -124,6 +131,35 @@ describe("task caching", () => {
 
 		const again = await run(graph, graph.selectByTag("pick"), opts);
 		expect(outcomeOf(again.outcomes, "build").kind).toBe("ok");
+	});
+
+	test("an edited output forces a rebuild even when inputs match", async () => {
+		const graph = buildGraph();
+		const opts = { rootDir: dir, requirementPolicy: "warn" as const };
+
+		await run(graph, graph.selectByTag("pick"), opts);
+		// Editing a generated file by hand must not survive as a cache hit.
+		writeFileSync(join(dir, "out.txt"), "hand written");
+
+		const again = await run(graph, graph.selectByTag("pick"), opts);
+		expect(outcomeOf(again.outcomes, "build").kind).toBe("ok");
+		expect(readFileSync(join(dir, "out.txt"), "utf8")).toBe("one");
+	});
+
+	test("a same-size edit to an output still forces a rebuild", async () => {
+		const graph = buildGraph();
+		const opts = { rootDir: dir, requirementPolicy: "warn" as const };
+
+		await run(graph, graph.selectByTag("pick"), opts);
+		const out = join(dir, "out.txt");
+		writeFileSync(out, "two");
+		// Pin a distinct mtime so the test never depends on timestamp granularity.
+		const later = new Date(Date.now() + 60_000);
+		utimesSync(out, later, later);
+
+		const again = await run(graph, graph.selectByTag("pick"), opts);
+		expect(outcomeOf(again.outcomes, "build").kind).toBe("ok");
+		expect(readFileSync(out, "utf8")).toBe("one");
 	});
 
 	test("cache: false recomputes regardless of the fingerprint", async () => {

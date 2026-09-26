@@ -40,7 +40,7 @@ export interface Task {
 	persistent: boolean;
 	/** Globs whose contents decide whether this task is already up to date. */
 	inputs?: string[];
-	/** Globs that must still exist for a cache hit to be honoured. */
+	/** Globs whose files must be as this task left them for a cache hit. */
 	outputs?: string[];
 	/** Restart this task when the watched files change. Persistent tasks only. */
 	watch?: WatchSpec;
