@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.2.1](https://github.com/Xevion/tempo/compare/v0.2.0...v0.2.1) (2026-09-26)
+
+
+### Features
+
+* add a compiled standalone binary distribution ([65ffd2d](https://github.com/Xevion/tempo/commit/65ffd2d505affacdbc0d5bb549f7e42e15a9eb5a))
+* **cache:** rerun a task when its declared outputs change ([08a6e35](https://github.com/Xevion/tempo/commit/08a6e3553898df44de86ec68e732966ef208049c))
+* **cli:** let a command require scope targets instead of running everything ([d346f45](https://github.com/Xevion/tempo/commit/d346f45faf745d04f90fbcc5a3cd841076fe1343))
+* **engine:** throttle spawned tasks while a named process is alive ([e5fc6c1](https://github.com/Xevion/tempo/commit/e5fc6c14f3ccc0085230d8dc734249097847b795))
+* show an idle spinner naming waiting and running tasks ([30ec05d](https://github.com/Xevion/tempo/commit/30ec05da065aeaa5eb0453d551ff1e0a8cdef8b7))
+
+
+### Miscellaneous
+
+* simplify Justfile recipes and drop the migration guide ([445b8a7](https://github.com/Xevion/tempo/commit/445b8a75311a2468a7cd4dc5a42bbd1f77dcce4c))
+* unblock the check gate and drop the unused outputsPresent export ([bb1dd9c](https://github.com/Xevion/tempo/commit/bb1dd9c4f6611a9ffe5e192e6c28ee53ad5bbce0))
+
+
+### Continuous Integration
+
+* judge advisories against the merge base ([1883bb7](https://github.com/Xevion/tempo/commit/1883bb7f759193fa1022dc605045aac599cdcc89))
+* switch audit step to advisory-action and fetch full history ([b53be27](https://github.com/Xevion/tempo/commit/b53be279bb58ed197a05a485bb7667a9319079f1))
+
 ## [0.2.0](https://github.com/Xevion/tempo/compare/v0.1.7...v0.2.0) (2026-08-22)
 
 
