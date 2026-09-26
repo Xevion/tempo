@@ -16,6 +16,7 @@ import {
 import type { Graph } from "./graph.ts";
 import { acquireLock, lockPath } from "./lock.ts";
 import { supervise } from "./supervise.ts";
+import { Throttle, type ThrottlePlan, type ThrottleSpec } from "./throttle.ts";
 import {
 	type EngineEvent,
 	type EventSink,
@@ -48,6 +49,8 @@ export interface RunOptions {
 	exitBehavior?: "first-exits" | "all-exit";
 	/** Ask children for colour. Defaults to whether stderr is a terminal. */
 	color?: boolean;
+	/** Yield the machine while this applies. `false` opts one run out. */
+	throttle?: ThrottleSpec | false;
 }
 
 export interface RunResult {
@@ -100,6 +103,17 @@ class Semaphore {
 			this.waiting.shift()?.();
 		};
 	}
+}
+
+/** A throttle caps concurrency; it never raises a limit already asked for. */
+function concurrencyLimit(
+	requested: number | undefined,
+	plan: ThrottlePlan | null,
+): number {
+	const base = requested ?? DEFAULT_CONCURRENCY;
+	return plan?.concurrency === undefined
+		? base
+		: Math.min(base, plan.concurrency);
 }
 
 /** Locally a missing tool skips its task; CI must not silently lose coverage. */
@@ -162,7 +176,6 @@ export async function run(
 	const passthrough = opts.passthrough ?? [];
 	const exitBehavior = opts.exitBehavior ?? "all-exit";
 	const color = opts.color ?? process.stderr.isTTY ?? false;
-	const semaphore = new Semaphore(opts.concurrency ?? DEFAULT_CONCURRENCY);
 	const edgesByTask = graph.edgesWithin(runSet);
 	const outcomes = new Map<string, Outcome>();
 	const gates = new Map<string, Deferred<boolean>>();
@@ -175,6 +188,17 @@ export async function run(
 
 	const startedAt = performance.now();
 	const emit = (event: EngineEvent): void => opts.onEvent?.(event);
+	const throttle = new Throttle(opts.throttle, (plan) =>
+		emit({
+			type: "throttle",
+			ts: nowIso(),
+			...(plan === null ? {} : { throttle: plan }),
+		}),
+	);
+	// Only the wrappers follow the process; the cap is set once, here.
+	const semaphore = new Semaphore(
+		concurrencyLimit(opts.concurrency, throttle.initial),
+	);
 
 	const settle = (name: string, outcome: Outcome, opened: boolean): void => {
 		if (!outcomes.has(name)) {
@@ -242,6 +266,7 @@ export async function run(
 			rootDir,
 			passthrough,
 			color,
+			throttle,
 		});
 		const outcome = codeOutcome(code, sig.aborted, performance.now() - began);
 		if (outcome.kind === "ok" && stamp) writeFingerprint(rootDir, d, stamp);
@@ -274,6 +299,7 @@ export async function run(
 		passthrough,
 		color,
 		onWaited,
+		throttle,
 	});
 
 	const runSupervised = (
@@ -356,7 +382,12 @@ export async function run(
 		await executeBody(t, stamp);
 	};
 
-	emit({ type: "run-start", ts: nowIso(), tasks: [...runSet].sort() });
+	emit({
+		type: "run-start",
+		ts: nowIso(),
+		tasks: [...runSet].sort(),
+		...(throttle.initial === null ? {} : { throttle: throttle.initial }),
+	});
 
 	try {
 		await Promise.all([...runSet].map((name) => execute(graph.get(name))));
@@ -389,6 +420,17 @@ interface BodyOptions {
 	color?: boolean;
 	/** Reports time the body spent queued for a lock rather than working. */
 	onWaited?: (ms: number) => void;
+	/** Wraps every child this body spawns, resolved at each spawn. */
+	throttle?: Throttle;
+}
+
+/** What to wrap this task's next spawn in, if anything. */
+function planFor(
+	t: Task,
+	throttle: Throttle | undefined,
+): ThrottlePlan | undefined {
+	if (t.throttle === false) return undefined;
+	return throttle?.current() ?? undefined;
 }
 
 /** A task runs at the project root unless it names a directory beneath it. */
@@ -409,13 +451,19 @@ function buildContext(t: Task, opts: BodyOptions): RunContext {
 		args: t.passthrough ? (opts.passthrough ?? []) : [],
 		log: (message) =>
 			emit({ type: "task-log", ts: nowIso(), task: t.name, message }),
-		capture: (argv, o) => captureCommand(argv, { ...where(o), signal }),
+		capture: (argv, o) =>
+			captureCommand(argv, {
+				...where(o),
+				signal,
+				throttle: planFor(t, opts.throttle),
+			}),
 		run: async (argv, o) => {
 			const { argv: resolved } = resolveArgv(argv);
 			await using proc = new Spawned(resolved, {
 				...where(o),
 				signal,
 				color,
+				throttle: planFor(t, opts.throttle),
 				onLine: (stream, line) =>
 					emit({
 						type: "task-output",
@@ -549,6 +597,7 @@ async function runBody(t: Task, opts: BodyOptions): Promise<number> {
 		env: t.env,
 		signal,
 		color,
+		throttle: planFor(t, opts.throttle),
 		onLine: (stream, line) =>
 			emit({ type: "task-output", ts: nowIso(), task: t.name, stream, line }),
 	});

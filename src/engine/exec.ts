@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { accessSync, constants, existsSync } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
+import type { ThrottlePlan } from "./throttle.ts";
 import type { Captured, Requirement } from "./types.ts";
 
 const SIGKILL_AFTER_MS = 3_000;
@@ -47,9 +48,8 @@ export function resolveArgv(body: string | string[]): ResolvedCommand {
 }
 
 /** Locate an executable on PATH without spawning anything. */
-export function hasTool(name: string): boolean {
+export function hasTool(name: string, path = process.env.PATH ?? ""): boolean {
 	if (name.includes("/")) return existsSync(name);
-	const path = process.env.PATH ?? "";
 	for (const dir of path.split(delimiter)) {
 		if (!dir) continue;
 		try {
@@ -79,6 +79,22 @@ export function describeRequirement(r: Requirement): string {
 	return r.hint ? `${what} (${r.hint})` : what;
 }
 
+/**
+ * Whether spawn would find `command`.
+ *
+ * A wrapper turns a missing binary into its own exit 127, so an unfindable
+ * command is spawned bare and fails with spawn's ENOENT instead.
+ */
+function findable(
+	command: string | undefined,
+	cwd: string | undefined,
+	path: string | undefined,
+): boolean {
+	if (!command) return false;
+	if (command.includes("/")) return existsSync(resolve(cwd ?? ".", command));
+	return hasTool(command, path ?? "");
+}
+
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -91,6 +107,8 @@ export interface SpawnOptions {
 	signal: AbortSignal;
 	onLine?: (stream: "stdout" | "stderr", line: string) => void;
 	capture?: boolean;
+	/** Wraps the child so the whole run yields the machine. */
+	throttle?: ThrottlePlan;
 }
 
 export interface ExitStatus {
@@ -116,18 +134,27 @@ export class Spawned implements AsyncDisposable {
 	private stderr = "";
 
 	constructor(argv: string[], opts: SpawnOptions) {
-		const [command, ...args] = argv;
+		const env: NodeJS.ProcessEnv = {
+			...process.env,
+			// A pipe makes tools drop colour; ask for it back explicitly.
+			...(opts.color ? { FORCE_COLOR: "1", CLICOLOR_FORCE: "1" } : {}),
+			// Under the task's own env, over whatever this process inherited.
+			...opts.throttle?.env,
+			...opts.env,
+		};
+		// Every wrapper in the prefix execs its argument, so the pid spawned here
+		// is still the command's own, and group signalling is unaffected.
+		const wrap =
+			opts.throttle !== undefined && findable(argv[0], opts.cwd, env.PATH);
+		const [command, ...args] = wrap
+			? [...(opts.throttle?.prefix ?? []), ...argv]
+			: argv;
 		if (!command) throw new Error("empty command");
 
 		this.signal = opts.signal;
 		this.child = spawn(command, args, {
 			cwd: opts.cwd,
-			env: {
-				...process.env,
-				// A pipe makes tools drop colour; ask for it back explicitly.
-				...(opts.color ? { FORCE_COLOR: "1", CLICOLOR_FORCE: "1" } : {}),
-				...opts.env,
-			},
+			env,
 			stdio: ["ignore", "pipe", "pipe"],
 			// Lead a process group so a signal reaches grandchildren too.
 			detached: true,

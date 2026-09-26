@@ -5,6 +5,7 @@
  * ports, not up front. What is fixed here is the engine's contract.
  */
 
+import type { ThrottlePlan } from "./throttle.ts";
 import type { WatchSpec } from "./watch.ts";
 
 /** A task body. All three forms are peers, not escape hatches. */
@@ -60,6 +61,13 @@ export interface Task {
 	 * not quietly drop the pass that covers everything.
 	 */
 	always?: boolean;
+	/**
+	 * `false` spawns this task at full priority under a throttled run.
+	 *
+	 * For a dev server that should stay responsive while its rebuilds yield. The
+	 * task still counts against the throttle's concurrency cap.
+	 */
+	throttle?: false;
 	/** Gates dependents on serving rather than on spawning. */
 	readyWhen?: (ctx: RunContext) => Promise<boolean> | boolean;
 	readyTimeoutMs?: number;
@@ -120,7 +128,14 @@ export type Outcome =
  * writing directly, which is what keeps `--json` correct by construction.
  */
 export type EngineEvent =
-	| { type: "run-start"; ts: string; tasks: string[] }
+	| {
+			type: "run-start";
+			ts: string;
+			tasks: string[];
+			throttle?: ThrottlePlan;
+	  }
+	/** The throttle changed mid-run; absent `throttle` means it lifted. */
+	| { type: "throttle"; ts: string; throttle?: ThrottlePlan }
 	| { type: "task-start"; ts: string; task: string; persistent: boolean }
 	| { type: "task-restart"; ts: string; task: string; reason: string }
 	| { type: "task-ready"; ts: string; task: string; ms: number }

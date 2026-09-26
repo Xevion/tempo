@@ -66,6 +66,7 @@ export default defineConfig({
 | `passthrough` | Append the run's arguments to this task. |
 | `lock` | `true`, or a path, to serialize against other tempo processes. |
 | `always` | Stay in the run even when positional targets narrow it. |
+| `throttle` | `false` keeps this task at full priority under a throttled run. |
 
 ### `needs` vs `after`
 
@@ -274,6 +275,45 @@ waits rather than failing, and the wait is reported beside the work, never charg
 ✓ mod:verify (41.2s, waited 12.8s)
 ```
 
+## Throttling
+
+A run saturates the machine by default: tasks run 8 at a time and each build tool sizes its
+own pool from the CPU count. `throttle` trades that for staying out of something else's way,
+which is what makes a full gate survivable while a game or another build is using the box:
+
+```ts
+export default defineConfig({
+  throttle: {
+    whileRunning: ["bf4.exe", "hops.exe"],  // omit to throttle unconditionally
+    cores: 2,                               // omit to leave affinity alone
+    concurrency: 2,
+    env: { CARGO_BUILD_JOBS: "2" },
+  },
+  commands: {
+    dev: { tasks: ["server"], throttle: false },
+  },
+})
+```
+
+`whileRunning` matches a process name (`/proc/<pid>/comm`, which the kernel truncates to 15
+characters), and is re-checked at most once a second as tasks spawn: a game launched during a
+long dev session throttles the next rebuild, and quitting it lifts the throttle. `cores`
+reserves that many physical cores and both SMT threads of each, chosen from the CPUs tempo is
+itself allowed (a container's cpuset is respected), so the run never shares a core with what
+it is yielding to; every tool downstream then sizes its own thread pool from the affinity mask
+with no per-tool flag. `concurrency` is a cap, never raises a lower limit, and is fixed when
+the run starts. `env` layers under a task's own `env`.
+
+Mechanically each child is spawned behind `taskset -c <cpus> chrt -i 0 ionice -c3`. Linux
+only, and a missing wrapper is simply left out. Function bodies run inside tempo's own
+process, so they obey the concurrency cap but not the affinity. `--no-throttle` opts one run
+out, `throttle: false` on a command opts it out permanently, and `throttle: false` on a task
+keeps that task at full priority while the rest of the run yields:
+
+```ts
+task({ name: "server", body: "cargo run -p server", persistent: true, throttle: false })
+```
+
 ## CLI
 
 ```bash
@@ -284,7 +324,7 @@ tempo run web:types      # specific tasks by name
 ```
 
 Global flags are extracted before the command, so `--` survives: `--config <path>`,
-`--dry-run`, `--json`, `-c/--concurrency <n>`, `--no-cache`.
+`--dry-run`, `--json`, `-c/--concurrency <n>`, `--no-cache`, `--no-throttle`.
 
 `--dry-run` prints the layers, which is the fastest way to check that an edge landed where you
 meant it. `--json` emits the raw record stream on stdout.

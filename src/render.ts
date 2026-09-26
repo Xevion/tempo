@@ -1,3 +1,4 @@
+import { describeThrottle } from "./engine/throttle.ts";
 import type { EngineEvent, EventSink, Outcome } from "./engine/types.ts";
 import { CLEAR_LINE, isStderrTTY } from "./fmt.ts";
 import { c } from "./utils/theme.ts";
@@ -213,10 +214,22 @@ export function ttySink(): EventSink {
 		switch (event.type) {
 			// Nothing to interleave, so the output is the point rather than noise.
 			case "run-start":
+				if (event.throttle) {
+					state.write(c.dim(describeThrottle(event.throttle)));
+				}
 				state.solo = event.tasks.length === 1;
 				state.startedAt = performance.now();
 				for (const task of event.tasks) state.waiting.add(task);
 				startSpinner(state, spinner);
+				return;
+			case "throttle":
+				state.write(
+					c.dim(
+						event.throttle
+							? describeThrottle(event.throttle)
+							: "throttle lifted",
+					),
+				);
 				return;
 			case "task-start":
 				state.waiting.delete(event.task);

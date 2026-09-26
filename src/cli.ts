@@ -17,6 +17,7 @@ interface GlobalFlags {
 	json: boolean;
 	dryRun: boolean;
 	noCache: boolean;
+	noThrottle: boolean;
 	concurrency?: number;
 }
 
@@ -25,6 +26,7 @@ function applyBooleanFlag(arg: string, globals: GlobalFlags): boolean {
 	if (arg === "--json") globals.json = true;
 	else if (arg === "--dry-run") globals.dryRun = true;
 	else if (arg === "--no-cache") globals.noCache = true;
+	else if (arg === "--no-throttle") globals.noThrottle = true;
 	else return false;
 	return true;
 }
@@ -52,6 +54,7 @@ function extractGlobals(argv: string[]): {
 		json: false,
 		dryRun: false,
 		noCache: false,
+		noThrottle: false,
 	};
 	const rest: string[] = [];
 	let passthrough: string[] = [];
@@ -168,6 +171,10 @@ async function execute(
 			requirementPolicy: config.isCI ? "fail" : undefined,
 			rootDir: config.rootDir,
 			cache: !globals.noCache,
+			throttle:
+				globals.noThrottle || spec?.throttle === false
+					? false
+					: config.throttle,
 			passthrough,
 			exitBehavior: spec?.exitBehavior,
 			signal: controller.signal,

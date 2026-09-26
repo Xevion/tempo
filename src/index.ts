@@ -17,6 +17,13 @@ export {
 	run,
 } from "./engine/schedule.ts";
 export {
+	describeThrottle,
+	planThrottle,
+	Throttle,
+	type ThrottlePlan,
+	type ThrottleSpec,
+} from "./engine/throttle.ts";
+export {
 	type Body,
 	type Captured,
 	type EngineEvent,

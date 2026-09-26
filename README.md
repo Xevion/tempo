@@ -161,6 +161,29 @@ Presets generate the tasks for a toolchain. `override` replaces a body, or drops
 | `presets.go` | `format`, `format-fix`, `lint`, `build`, `test` |
 | `presets.gradle` | `format`, `format-fix`, `lint`, `compile`, `test` |
 
+## Throttling
+
+A run takes the whole machine by default. `throttle` hands most of it back while something
+else needs it, which is what makes a full gate survivable during a game or another build:
+
+```ts
+export default defineConfig({
+  throttle: {
+    whileRunning: ["bf4.exe"],  // omit to throttle unconditionally
+    cores: 2,                   // whole physical cores, SMT siblings included
+    concurrency: 2,             // a cap, never a raise
+    env: { CARGO_BUILD_JOBS: "2" },
+  },
+  tasks: [...],
+})
+```
+
+Each child is spawned behind `taskset -c <cpus> chrt -i 0 ionice -c3`, so every tool
+downstream sizes its own thread pool from the affinity mask without a per-tool flag. Linux
+only. `whileRunning` is checked again as tasks spawn, so a game launched mid-session throttles
+the next rebuild; the concurrency cap is fixed when the run starts. `throttle: false` on a
+command exempts it, and on a task keeps that one process (a dev server, say) at full priority.
+
 ## CLI
 
 Global flags are parsed before the command, so `--` and everything after it survives:
@@ -172,6 +195,7 @@ Global flags are parsed before the command, so `--` and everything after it surv
 | `--json` | Emit the raw engine record stream as JSON Lines on stdout |
 | `-c, --concurrency <n>` | Cap parallel tasks |
 | `--no-cache` | Ignore fingerprints |
+| `--no-throttle` | Ignore `config.throttle` for this run |
 
 `--json` is the engine's own record stream, not a rendering of it: stdout carries records and
 nothing else, so it stays parseable while a task is writing to the terminal.

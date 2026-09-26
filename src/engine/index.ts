@@ -24,6 +24,13 @@ export {
 } from "./schedule.ts";
 export { type SuperviseHooks, supervise } from "./supervise.ts";
 export {
+	describeThrottle,
+	planThrottle,
+	Throttle,
+	type ThrottlePlan,
+	type ThrottleSpec,
+} from "./throttle.ts";
+export {
 	type Body,
 	type Captured,
 	type EngineEvent,

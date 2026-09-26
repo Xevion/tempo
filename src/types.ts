@@ -1,3 +1,4 @@
+import type { ThrottleSpec } from "./engine/throttle.ts";
 import type { RequirementPolicy, Task } from "./engine/types.ts";
 
 /**
@@ -21,6 +22,8 @@ export interface CommandSpec {
 	 * than one selecting a subset of a matrix (`tempo check backend`).
 	 */
 	passthrough?: boolean;
+	/** `false` exempts this command from the project's throttle. */
+	throttle?: false;
 }
 
 export interface TempoConfig {
@@ -28,6 +31,8 @@ export interface TempoConfig {
 	commands?: Record<string, CommandSpec>;
 	concurrency?: number;
 	runtime?: "bun" | "node";
+	/** Run on a slice of the machine rather than all of it. */
+	throttle?: ThrottleSpec;
 }
 
 export interface ResolvedConfig extends TempoConfig {
