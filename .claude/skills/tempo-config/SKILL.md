@@ -225,10 +225,37 @@ commands: {
 | `exitBehavior` | `first-exits` ends the run when the first persistent task exits. |
 | `requirementPolicy` | `skip` \| `warn` \| `fail`. Defaults to `fail` under CI. |
 | `passthrough` | Positionals are arguments, not selectors. |
+| `requireTargets` | Reject a bare invocation instead of running everything; see below. |
+| `example` | Shown verbatim under the scope list a rejected bare invocation prints. |
 
 Positional arguments normally **narrow** a selection (`tempo check web`), and narrowing keeps
 dependencies: a narrowed run still pulls in what the surviving tasks need, and `always: true`
-tasks survive it.
+tasks survive it. A target matches a task name, a tag, or a namespace (`web` covers `web:*`).
+A target matching nothing in the command's selection is an error that lists the scopes, so a
+typo never passes as a run of only the `always` tasks.
+
+### Requiring a scope
+
+A workspace with enough subsystems reaches a point where "run everything" stops being a
+question a bare invocation should answer for you. `requireTargets: true` makes a bare
+invocation an error instead of the full run:
+
+```ts
+commands: {
+  check: {
+    tags: ["check"],
+    requireTargets: true,
+    example: "tempo check web api",
+  },
+}
+```
+
+`tempo check` with no targets prints every namespace the command's own tags/tasks select,
+each with its full task names (derived from the graph, not hand-maintained), marks the ones
+made up entirely of `always: true` tasks as always running, lists the other tags a target can
+name, prints `example` verbatim, and exits 1. `tempo check web` runs as before. `--dry-run`
+does not bypass the gate: there is nothing to preview either. `requireTargets` with
+`passthrough` is rejected when the config loads, since passthrough positionals are arguments.
 
 ### Commands that take arguments
 

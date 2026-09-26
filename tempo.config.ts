@@ -75,6 +75,11 @@ export default defineConfig({
 			tags: ["check"],
 		}),
 		task({
+			name: "test:require-targets",
+			body: "bun test tests/require-targets.test.ts",
+			tags: ["check"],
+		}),
+		task({
 			name: "test:dev",
 			body: "bun test tests/dev.test.ts",
 			tags: ["check"],

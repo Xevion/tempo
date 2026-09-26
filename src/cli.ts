@@ -3,7 +3,7 @@ import pkg from "../package.json" with { type: "json" };
 import { loadConfig } from "./config.ts";
 import { Graph } from "./engine/graph.ts";
 import { planLayers, run } from "./engine/schedule.ts";
-import type { EventSink } from "./engine/types.ts";
+import type { EventSink, Task } from "./engine/types.ts";
 import { GraphError } from "./engine/types.ts";
 import { TempoAbortError, TempoConfigError } from "./errors.ts";
 import { initRegistration } from "./register.ts";
@@ -77,6 +77,15 @@ function extractGlobals(argv: string[]): {
 	return { globals, rest, passthrough };
 }
 
+/** Whether a positional target names this task, one of its tags, or its namespace. */
+function targets(t: Task, target: string): boolean {
+	return (
+		t.name === target ||
+		t.tags.includes(target) ||
+		t.name.startsWith(`${target}:`)
+	);
+}
+
 /**
  * Narrow a selection by task name, tag, or namespace prefix.
  *
@@ -86,22 +95,26 @@ function extractGlobals(argv: string[]): {
 function narrow(
 	graph: Graph,
 	runSet: Set<string>,
-	targets: string[],
+	wanted: string[],
 ): Set<string> {
-	if (targets.length === 0) return runSet;
-	const wanted = new Set(targets);
+	if (wanted.length === 0) return runSet;
 	const kept = [...runSet].filter((name) => {
 		const t = graph.tasks.get(name);
 		if (!t) return false;
-		return (
-			t.always === true ||
-			wanted.has(name) ||
-			t.tags.some((tag) => wanted.has(tag)) ||
-			targets.some((target) => name.startsWith(`${target}:`))
-		);
+		return t.always === true || wanted.some((target) => targets(t, target));
 	});
 	const keptSet = new Set(kept);
 	return graph.select((t) => keptSet.has(t.name));
+}
+
+/** Targets that select nothing, which would otherwise narrow to the `always` tasks alone. */
+function unmatched(
+	graph: Graph,
+	runSet: Set<string>,
+	wanted: string[],
+): string[] {
+	const tasks = [...runSet].map((name) => graph.get(name));
+	return wanted.filter((target) => !tasks.some((t) => targets(t, target)));
 }
 
 function selectFor(graph: Graph, spec: CommandSpec): Set<string> {
@@ -125,6 +138,47 @@ function printPlan(graph: Graph, runSet: Set<string>): void {
 		process.stderr.write(`${c.dim(`layer ${index + 1}`)}\n`);
 		for (const name of layer) process.stderr.write(`  ${name}\n`);
 	}
+}
+
+/**
+ * Print what a command's targets can name: namespaces with their tasks, then tags.
+ *
+ * A namespace made up entirely of `always` tasks runs regardless, so it is
+ * marked rather than offered as a choice.
+ */
+function printScopes(graph: Graph, spec: CommandSpec): void {
+	const selected = [...selectFor(graph, spec)].map((name) => graph.get(name));
+	const byNamespace = new Map<string, Task[]>();
+	for (const t of selected) {
+		const sep = t.name.indexOf(":");
+		const ns = sep === -1 ? t.name : t.name.slice(0, sep);
+		byNamespace.set(ns, [...(byNamespace.get(ns) ?? []), t]);
+	}
+
+	const namespaces = [...byNamespace.keys()].sort();
+	const width = Math.max(...namespaces.map((ns) => ns.length));
+	process.stderr.write("scopes:\n");
+	for (const ns of namespaces) {
+		const members = (byNamespace.get(ns) ?? []).sort((a, b) =>
+			a.name.localeCompare(b.name),
+		);
+		const detail = members.every((t) => t.always)
+			? "always runs"
+			: members
+					.filter((t) => t.name !== ns)
+					.map((t) => (t.always ? `${t.name} (always)` : t.name))
+					.join(", ");
+		process.stderr.write(`  ${ns.padEnd(width)}  ${c.dim(detail)}\n`);
+	}
+
+	// The command's own tags select everything it runs, so naming one narrows nothing.
+	const own = new Set(spec.tags ?? []);
+	const tags = [...new Set(selected.flatMap((t) => t.tags))]
+		.filter((tag) => !own.has(tag))
+		.sort();
+	if (tags.length > 0)
+		process.stderr.write(`tags: ${c.dim(tags.join(", "))}\n`);
+	if (spec.example) process.stderr.write(`\nexample: ${c.dim(spec.example)}\n`);
 }
 
 function listTasks(graph: Graph): void {
@@ -195,19 +249,40 @@ function runSelector(
 	config: ResolvedConfig,
 	graph: Graph,
 	spec: CommandSpec,
-	targets: string[],
+	name: string,
+	positional: string[],
 	globals: GlobalFlags,
 	passthrough: string[],
 ): Promise<number> {
 	const selected = selectFor(graph, spec);
-	const runSet = spec.passthrough ? selected : narrow(graph, selected, targets);
+	if (!spec.passthrough) {
+		if (spec.requireTargets && positional.length === 0) {
+			process.stderr.write(
+				`${c.red("error")} "${name}" needs at least one scope; nothing runs without one\n\n`,
+			);
+			printScopes(graph, spec);
+			return Promise.resolve(1);
+		}
+		const missing = unmatched(graph, selected, positional);
+		if (missing.length > 0) {
+			const quoted = missing.map((m) => `"${m}"`).join(", ");
+			process.stderr.write(
+				`${c.red("error")} "${name}" has nothing matching ${quoted}\n\n`,
+			);
+			printScopes(graph, spec);
+			return Promise.resolve(1);
+		}
+	}
+	const runSet = spec.passthrough
+		? selected
+		: narrow(graph, selected, positional);
 	return execute(
 		config,
 		graph,
 		runSet,
 		{ ...globals, concurrency: globals.concurrency ?? spec.concurrency },
 		spec,
-		spec.passthrough ? [...targets, ...passthrough] : passthrough,
+		spec.passthrough ? [...positional, ...passthrough] : passthrough,
 	);
 }
 
@@ -291,6 +366,7 @@ export async function main(
 			config,
 			graph,
 			specs[name],
+			name,
 			targets,
 			globals,
 			passthrough,

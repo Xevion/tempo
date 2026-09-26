@@ -107,6 +107,17 @@ async function enforceRuntime(config: TempoConfig): Promise<void> {
 	reexecUnderBun();
 }
 
+/** Reject command settings that contradict each other rather than silently ignoring one. */
+function validateCommands(config: TempoConfig): void {
+	for (const [name, spec] of Object.entries(config.commands ?? {})) {
+		if (spec.requireTargets && spec.passthrough) {
+			throw new TempoConfigError(
+				`command "${name}" sets both requireTargets and passthrough; with passthrough its positionals are arguments, not targets`,
+			);
+		}
+	}
+}
+
 export async function loadConfig(options?: {
 	configPath?: string;
 	cwd?: string;
@@ -115,6 +126,7 @@ export async function loadConfig(options?: {
 	const cwd = options?.cwd ?? process.cwd();
 	const configPath = resolveConfigPath(cwd, options?.configPath);
 	const config = await importConfig(configPath);
+	validateCommands(config);
 	await enforceRuntime(config);
 
 	return {

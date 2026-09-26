@@ -46,6 +46,11 @@ tempo list           # every task with its tags and dependencies
 tempo run web:types  # specific tasks by name
 ```
 
+A target names a task, a tag, or a namespace (`web` covers `web:*`). One that matches nothing
+in the command's selection is an error listing what does, never a quietly smaller run.
+`requireTargets: true` on a command makes a bare invocation the same error, for a workspace
+where "everything" is no longer a sensible default.
+
 ## The model
 
 A **task** is the atom: a name, a body, tags, requirements, and edges. A **command** is a

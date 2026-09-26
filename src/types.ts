@@ -24,6 +24,16 @@ export interface CommandSpec {
 	passthrough?: boolean;
 	/** `false` exempts this command from the project's throttle. */
 	throttle?: false;
+	/**
+	 * Refuse to run with no positional targets, printing the command's scopes
+	 * (namespaces of its selected tasks) and `example` instead.
+	 *
+	 * For a workspace large enough that "run everything" stops being a real
+	 * question a bare invocation should answer.
+	 */
+	requireTargets?: boolean;
+	/** Shown, verbatim, under the scope list when `requireTargets` rejects a bare invocation. */
+	example?: string;
 }
 
 export interface TempoConfig {
