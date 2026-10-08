@@ -60,6 +60,7 @@ export default defineConfig({
 | `cwd` | Resolved against the project root, never the invocation directory. |
 | `env` | Extra environment for this task. |
 | `inputs` / `outputs` | Globs that make the task cacheable. |
+| `cacheKey` | A string, or a function evaluated per fingerprint, mixed into the fingerprint (a compiler version). |
 | `persistent` | Long-lived. Never a valid `needs` target for a one-shot task. |
 | `watch` | `{ paths, exts?, interrupt?, debounce? }`. Persistent tasks only. |
 | `readyWhen` | Gates dependents on serving rather than on spawning. |
@@ -109,7 +110,9 @@ const WEB_DEPS = { file: "web/node_modules", hint: "run `bun install` inside web
 
 There is no preflight system. A generator is an ordinary task that declares what it reads and
 writes, and the engine skips it while its inputs are unchanged. Inputs are fingerprinted by
-content, not timestamps. Outputs are checked by size and mtime, so a hand edit to a generated
+content, not timestamps, and only files git lists (tracked, or untracked and not ignored) count,
+so `target/` and friends are never walked; name an ignored file outright, with no wildcard, to
+depend on it anyway. Outputs may be ignored. Outputs are checked by size and mtime, so a hand edit to a generated
 file reruns its task; the flip side is that two tasks writing one file keep invalidating each
 other, so give every output a single owner.
 
@@ -322,8 +325,9 @@ export default defineConfig({
 })
 ```
 
-`whileRunning` matches a process name (`/proc/<pid>/comm`, which the kernel truncates to 15
-characters), and is re-checked at most once a second as tasks spawn: a game launched during a
+`whileRunning` matches a process name (`/proc/<pid>/comm`; a longer name is cut to the kernel's
+15 characters before comparing, and case is ignored, so `bf4_Server_Final.exe` and Wine's
+`bf4.exe` both work), and is re-checked at most once a second as tasks spawn: a game launched during a
 long dev session throttles the next rebuild, and quitting it lifts the throttle. `cores`
 reserves that many physical cores and both SMT threads of each, chosen from the CPUs tempo is
 itself allowed (a container's cpuset is respected), so the run never shares a core with what

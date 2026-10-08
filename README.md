@@ -90,8 +90,14 @@ task({
 });
 ```
 
-Inputs are fingerprinted by content, not timestamps. Outputs are checked by size and mtime, so a
-hand edit to a generated file reruns its task. Fingerprints live in `.tempo/`, which ignores
+Inputs are fingerprinted by content, not timestamps. Inside a git work tree they are the files
+`git ls-files -co --exclude-standard` lists, so ignored trees such as `target/` are never
+walked; a pattern with no wildcard names one file and counts even when it is ignored. Digests are
+remembered in `.tempo/hashes.json` by size and timestamps, so a cached task re-reads only what
+changed. Outputs are checked by size and mtime, so a hand edit to a generated file reruns its
+task; they are found by walking below each pattern's literal prefix, so ignored build artifacts
+work. `cacheKey` adds anything else the result depends on, such as a compiler version.
+`--no-cache` recomputes everything for one run. Fingerprints live in `.tempo/`, which ignores
 itself, so nothing reaches your diff. A cache hit satisfies dependents: anything that `needs`
 this task proceeds immediately.
 
