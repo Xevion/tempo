@@ -7,6 +7,7 @@ import { hasTool } from "../src/engine/exec.ts";
 import { Graph, task } from "../src/engine/graph.ts";
 import { run } from "../src/engine/schedule.ts";
 import {
+	commKey,
 	describeThrottle,
 	parseCpuList,
 	pickCpus,
@@ -111,6 +112,70 @@ describe("cpu selection", () => {
 	test("a half-allowed core contributes only its allowed thread", () => {
 		expect(pickCpus(smt, new Set([0, 1, 5]), 1)).toEqual([1, 5]);
 		expect(pickCpus(smt, new Set([0, 4, 1]), 1)).toEqual([1]);
+	});
+});
+
+describe("process names", () => {
+	test("a name is cut to the length the kernel keeps and folded to lower case", () => {
+		expect(commKey("bf4.exe")).toBe("bf4.exe");
+		expect(commKey("BF4.EXE")).toBe("bf4.exe");
+		expect(commKey("bf4_Server_Final.exe")).toBe("bf4_server_fina");
+		expect(commKey("bf4_Server_Final.exe")).toHaveLength(15);
+		expect(commKey("exactly15chars!x")).toBe("exactly15chars!");
+	});
+});
+
+suite("matching live names", () => {
+	/** Keep a process alive whose executable is called `name`, as Wine names a game. */
+	function launch(name: string): () => void {
+		const dir = mkdtempSync(join(tmpdir(), "tempo-throttle-"));
+		const bin = join(dir, name);
+		symlinkSync("/bin/sh", bin);
+		const child = spawn(bin, ["-c", "sleep 30; :"], { stdio: "ignore" });
+		return () => {
+			child.kill("SIGKILL");
+			rmSync(dir, { recursive: true, force: true });
+		};
+	}
+
+	async function until(name: string, hit: boolean): Promise<boolean> {
+		for (let i = 0; i < 100; i++) {
+			if ((planThrottle({ whileRunning: name }) !== null) === hit) return true;
+			await Bun.sleep(10);
+		}
+		return false;
+	}
+
+	test("a name longer than comm still matches, and reports the configured spelling", async () => {
+		const name = `Tempo-Long-Name-${process.pid}.exe`;
+		const stop = launch(name);
+		try {
+			expect(await until(name, true)).toBe(true);
+			expect(planThrottle({ whileRunning: name })?.matched).toBe(name);
+		} finally {
+			stop();
+		}
+	});
+
+	test("case does not decide a match", async () => {
+		const name = `tcase${process.pid % 100000}.exe`;
+		const stop = launch(name);
+		try {
+			expect(await until(name.toUpperCase(), true)).toBe(true);
+		} finally {
+			stop();
+		}
+	});
+
+	test("a different process with the same prefix is not a match", async () => {
+		const name = `tpref${process.pid % 100000}.exe`;
+		const stop = launch(name);
+		try {
+			expect(await until(name, true)).toBe(true);
+			expect(planThrottle({ whileRunning: `${name}x` })).toBeNull();
+		} finally {
+			stop();
+		}
 	});
 });
 

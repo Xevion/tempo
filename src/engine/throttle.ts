@@ -29,14 +29,28 @@ const CPU_DIR = "/sys/devices/system/cpu";
 /** How long a resolved plan is trusted before `/proc` is scanned again. */
 const REPLAN_MS = 1_000;
 
+/** The longest process name the kernel keeps in `comm`. */
+const COMM_MAX = 15;
+
+/**
+ * The key a process name is compared under.
+ *
+ * `comm` is truncated to 15 characters, so a longer name is cut the same way
+ * before comparing. Case is folded because Wine reports the executable's name
+ * as the file spells it, which need not be how a config does.
+ */
+export function commKey(name: string): string {
+	return name.slice(0, COMM_MAX).toLowerCase();
+}
+
 /**
  * The first of `names` with a live process, matched on `/proc/<pid>/comm`.
  *
- * `comm` is the executable name the kernel truncates to 15 characters, so a
- * longer name never matches.
+ * A Wine or Proton process sets its own `comm` to the executable's name, so
+ * `bf4.exe` matches the game itself, not the launcher around it.
  */
 function liveProcess(names: string[]): string | null {
-	const wanted = new Set(names);
+	const wanted = new Map(names.map((name) => [commKey(name), name]));
 	let entries: string[];
 	try {
 		entries = readdirSync(PROC);
@@ -47,7 +61,8 @@ function liveProcess(names: string[]): string | null {
 		if (!/^\d+$/.test(entry)) continue;
 		try {
 			const comm = readFileSync(`${PROC}/${entry}/comm`, "utf8").trim();
-			if (wanted.has(comm)) return comm;
+			const name = wanted.get(commKey(comm));
+			if (name !== undefined) return name;
 		} catch {
 			// exited between the listing and the read
 		}
