@@ -1,4 +1,5 @@
 export {
+	FileIndex,
 	fingerprint,
 	globFiles,
 	globToRegExp,

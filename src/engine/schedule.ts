@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import {
+	FileIndex,
 	fingerprint,
 	isCacheable,
 	isFresh,
@@ -173,6 +174,8 @@ export async function run(
 	const policy = opts.requirementPolicy ?? defaultPolicy();
 	const rootDir = opts.rootDir ?? process.cwd();
 	const cacheEnabled = opts.cache !== false;
+	// One listing and one set of digests for the run, dropped whenever a body may have changed files.
+	const files = new FileIndex(rootDir);
 	const passthrough = opts.passthrough ?? [];
 	const exitBehavior = opts.exitBehavior ?? "all-exit";
 	const color = opts.color ?? process.stderr.isTTY ?? false;
@@ -247,7 +250,7 @@ export async function run(
 
 		let stamp: string | null = null;
 		if (cacheEnabled && isCacheable(d)) {
-			stamp = fingerprint(d, rootDir);
+			stamp = fingerprint(d, rootDir, files);
 			if (isFresh(d, rootDir, stamp)) {
 				emit({
 					type: "task-settled",
@@ -268,6 +271,7 @@ export async function run(
 			color,
 			throttle,
 		});
+		files.invalidate();
 		const outcome = codeOutcome(code, sig.aborted, performance.now() - began);
 		if (outcome.kind === "ok" && stamp) writeFingerprint(rootDir, d, stamp);
 		emit({ type: "task-settled", ts: nowIso(), task: dep, outcome });
@@ -350,6 +354,7 @@ export async function run(
 			const ms = performance.now() - began - waited;
 			settle(t.name, errorOutcome(err, controller.signal.aborted, ms), false);
 		} finally {
+			files.invalidate();
 			release();
 		}
 	};
@@ -373,7 +378,7 @@ export async function run(
 		// A cache hit is a success for dependents: the outputs are already there.
 		let stamp: string | null = null;
 		if (cacheEnabled && isCacheable(t)) {
-			stamp = fingerprint(t, rootDir);
+			stamp = fingerprint(t, rootDir, files);
 			if (isFresh(t, rootDir, stamp)) {
 				settle(t.name, { kind: "cached", ms: 0 }, true);
 				return;
@@ -392,6 +397,7 @@ export async function run(
 	try {
 		await Promise.all([...runSet].map((name) => execute(graph.get(name))));
 	} finally {
+		files.flush();
 		opts.signal?.removeEventListener("abort", abort);
 		// Release anything still gated so no dependent is left awaiting forever.
 		for (const [name, gate] of gates) {

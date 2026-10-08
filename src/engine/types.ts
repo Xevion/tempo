@@ -43,6 +43,13 @@ export interface Task {
 	inputs?: string[];
 	/** Globs whose files must be as this task left them for a cache hit. */
 	outputs?: string[];
+	/**
+	 * Extra identity for the fingerprint, for what a task depends on besides files.
+	 *
+	 * A compiler version, say. A function is called each time the fingerprint is
+	 * computed, so it can stay cheap to declare and costly to evaluate.
+	 */
+	cacheKey?: string | (() => string);
 	/** Restart this task when the watched files change. Persistent tasks only. */
 	watch?: WatchSpec;
 	/** Append the run's passthrough arguments to this task's command. */

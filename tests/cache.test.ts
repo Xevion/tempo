@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -9,7 +10,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { globFiles, globToRegExp } from "../src/engine/cache.ts";
+import {
+	FileIndex,
+	fingerprint,
+	globFiles,
+	globToRegExp,
+} from "../src/engine/cache.ts";
 import { Graph, task } from "../src/engine/graph.ts";
 import { run } from "../src/engine/schedule.ts";
 import type { Outcome } from "../src/engine/types.ts";
@@ -231,5 +237,138 @@ describe("task caching", () => {
 		await run(graph, graph.selectByTag("pick"), opts);
 		const second = await run(graph, graph.selectByTag("pick"), opts);
 		expect(outcomeOf(second.outcomes, "always").kind).toBe("ok");
+	});
+});
+
+const hasGit = spawnSync("git", ["--version"]).status === 0;
+const gitSuite = hasGit ? describe : describe.skip;
+
+function put(path: string, body = "x"): void {
+	mkdirSync(join(dir, path, ".."), { recursive: true });
+	writeFileSync(join(dir, path), body);
+}
+
+gitSuite("inside a git work tree", () => {
+	beforeEach(() => {
+		spawnSync("git", ["init", "-q"], { cwd: dir });
+		put(".gitignore", "target/\ndist/\nsecret.env\n");
+		put("src/a.ts");
+		put("target/debug/big.ts");
+		put("dist/out.mjs", "built");
+		put("secret.env", "KEY=1");
+	});
+
+	test("ignored trees are never listed", () => {
+		put("src/new.ts");
+		expect(globFiles(dir, ["**/*.ts"])).toEqual(["src/a.ts", "src/new.ts"]);
+	});
+
+	test("a nested repository is walked rather than dropped", () => {
+		put("vendor/lib/inner.ts", "one");
+		spawnSync("git", ["init", "-q"], { cwd: join(dir, "vendor", "lib") });
+		expect(globFiles(dir, ["vendor/**"])).toEqual(["vendor/lib/inner.ts"]);
+
+		const t = task({ name: "t", body: "true", inputs: ["vendor/**"] });
+		const before = fingerprint(t, dir);
+		put("vendor/lib/inner.ts", "two");
+		expect(fingerprint(t, dir)).not.toBe(before);
+	});
+
+	test("an ignored file named outright is still an input", () => {
+		expect(globFiles(dir, ["secret.env", "src/*.ts"])).toEqual([
+			"secret.env",
+			"src/a.ts",
+		]);
+	});
+
+	test("a file deleted but still in the index is not an input", () => {
+		spawnSync("git", ["add", "src/a.ts"], { cwd: dir });
+		rmSync(join(dir, "src", "a.ts"));
+		const index = new FileIndex(dir);
+		expect(index.files()).toContain("src/a.ts");
+		expect(index.digest("src/a.ts")).toBeNull();
+		const t = task({ name: "t", body: "true", inputs: ["src/*.ts"] });
+		const before = fingerprint(t, dir);
+		put("src/a.ts");
+		expect(fingerprint(t, dir)).not.toBe(before);
+	});
+
+	test("changing an ignored file leaves the fingerprint alone", () => {
+		const t = task({ name: "t", body: "true", inputs: ["**/*.ts"] });
+		const before = fingerprint(t, dir);
+		put("target/debug/big.ts", "changed");
+		expect(fingerprint(t, dir)).toBe(before);
+		put("src/a.ts", "changed");
+		expect(fingerprint(t, dir)).not.toBe(before);
+	});
+
+	test("an ignored output is still checked", async () => {
+		const graph = new Graph([
+			task({
+				name: "build",
+				tags: ["pick"],
+				body: ["sh", "-c", "echo built > dist/out.mjs"],
+				cwd: dir,
+				inputs: ["src/*.ts"],
+				outputs: ["dist/**/*.mjs"],
+			}),
+		]);
+		const opts = { rootDir: dir, requirementPolicy: "warn" as const };
+		await run(graph, graph.selectByTag("pick"), opts);
+		const hit = await run(graph, graph.selectByTag("pick"), opts);
+		expect(outcomeOf(hit.outcomes, "build").kind).toBe("cached");
+
+		rmSync(join(dir, "dist", "out.mjs"));
+		const again = await run(graph, graph.selectByTag("pick"), opts);
+		expect(outcomeOf(again.outcomes, "build").kind).toBe("ok");
+	});
+
+	test("an edit that keeps size and mtime is still seen", () => {
+		const file = join(dir, "src", "a.ts");
+		const past = new Date(Date.now() - 60_000);
+		writeFileSync(file, "aaaa");
+		utimesSync(file, past, past);
+		// A negative window treats a file written a moment ago as long settled.
+		const first = new FileIndex(dir, -1_000);
+		const digest = first.digest("src/a.ts");
+		first.flush();
+
+		// Same size, same mtime: only ctime gives the edit away.
+		writeFileSync(file, "bbbb");
+		utimesSync(file, past, past);
+		expect(new FileIndex(dir, -1_000).digest("src/a.ts")).not.toBe(digest);
+	});
+
+	test("an untouched file is not read again", () => {
+		const file = join(dir, "src", "a.ts");
+		const past = new Date(Date.now() - 60_000);
+		writeFileSync(file, "aaaa");
+		utimesSync(file, past, past);
+		const first = new FileIndex(dir, -1_000);
+		const digest = first.digest("src/a.ts");
+		first.flush();
+
+		// Swap the stored digest for a marker: a file matching its stat is never re-read.
+		const stored = join(dir, ".tempo", "hashes.json");
+		writeFileSync(
+			stored,
+			readFileSync(stored, "utf8").replace(digest ?? "", "marker"),
+		);
+		expect(new FileIndex(dir, -1_000).digest("src/a.ts")).toBe("marker");
+	});
+});
+
+describe("cache keys", () => {
+	test("a key is part of the fingerprint, and a function is evaluated each time", () => {
+		const plain = task({ name: "t", body: "true" });
+		let version = "1";
+		const keyed = task({ name: "t", body: "true", cacheKey: () => version });
+		const first = fingerprint(keyed, dir);
+		expect(first).not.toBe(fingerprint(plain, dir));
+		version = "2";
+		expect(fingerprint(keyed, dir)).not.toBe(first);
+		expect(
+			fingerprint(task({ name: "t", body: "true", cacheKey: "2" }), dir),
+		).not.toBe(first);
 	});
 });
